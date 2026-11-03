@@ -6,8 +6,8 @@ import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { parseArgs } from 'node:util';
-import { createDetector } from '../src/detector.js';
-import { scanBody } from '../src/body.js';
+import { createDetector } from '../src/detector.ts';
+import { scanBody } from '../src/body.ts';
 
 const opts = { 'bw-json': { type: 'string' }, 'from-text': { type: 'string', multiple: true }, out: { type: 'string' }, folder: { type: 'string' }, collection: { type: 'string' }, org: { type: 'string' }, known: { type: 'string' }, source: { type: 'string' }, stdin: { type: 'boolean' }, label: { type: 'string' }, home: { type: 'string' }, since: { type: 'string' }, context: { type: 'boolean' }, events: { type: 'string' } };
 const args = process.argv.slice(2);

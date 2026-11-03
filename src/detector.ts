@@ -1,7 +1,7 @@
 // Core detector: own-list exact match first, then rule patterns.
 // Pure JS, no deps; runs in Bun and Node >= 20.
 import { createHmac, randomBytes } from "node:crypto";
-import { RULES, KEYWORD_WINDOW } from "./rules.js";
+import { RULES, KEYWORD_WINDOW } from "./rules.ts";
 
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 

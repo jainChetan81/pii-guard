@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Database } from 'bun:sqlite';
 
-const cli = join(import.meta.dir, '../bin/pii-guard.js');
+const cli = join(import.meta.dir, '../bin/pii-guard.ts');
 const secret = 'syntheticPassword1234';
 const token = 'sk-or-v1-' + 'abcdef12'.repeat(8);
 function run(cwd, ...args) {
