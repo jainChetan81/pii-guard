@@ -1,0 +1,10 @@
+{
+  "name": "pii-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Detect own secrets and Indian PII in LLM request bodies. Observe mode first.",
+  "exports": { ".": "./src/index.js" },
+  "scripts": { "test": "bun test" },
+  "license": "MIT"
+}
