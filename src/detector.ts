@@ -9,6 +9,8 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // and phones with a +91 / 0 prefix. Match the bare digits with optional separators.
 function knownPattern(value: string, category?: string): string {
   if (category === "id" && /^[A-Z0-9 -]{6,30}$/.test(value)) {
+    // Digit-only IDs keep digit boundaries so they never match inside a longer number.
+    if (/^[\d -]+$/.test(value)) return `(?<!\\d)(?:${esc(value)}|${value.replace(/[ -]/g, "").split("").join("[ \\t-]*")})(?!\\d)`;
     return `${esc(value)}|(?<![A-Za-z0-9])${value.replace(/[ -]/g, "").split("").map(esc).join("[ \\t-]*")}(?![A-Za-z0-9])`;
   }
   const digits = value.replace(/[\s-]/g, "");

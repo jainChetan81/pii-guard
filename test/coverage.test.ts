@@ -7,7 +7,10 @@ test("known short secrets, foreign phones, and formatted IDs", () => {
     { name: "pin", value: "1234" },
     { name: "foreign", value: "+442079460958" },
     { name: "plate", value: "KA01AB1234", category: "id" },
+    { name: "numid", value: "234567890123", category: "id" },
   ], rules: [] });
+  expect(d.scan("12345678901234").some((f) => f.name === "numid")).toBe(false);
+  expect(d.scan("id 2345 6789 0123")[0].name).toBe("numid");
   expect(d.scan("1234")[0].name).toBe("pin");
   expect(d.scan("+44 2079 460958")[0].name).toBe("foreign");
   expect(d.scan("KA-01-AB-1234")[0].name).toBe("plate");
