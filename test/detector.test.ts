@@ -8,7 +8,7 @@ import { scanBody } from "../src/body.ts";
 const INV = [0, 4, 3, 2, 1, 5, 6, 7, 8, 9];
 const D = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]];
 const P = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
-function withCheck(base) {
+function withCheck(base: string): string {
   let c = 0;
   for (let i = 0; i < base.length; i++) c = D[c][P[(i + 1) % 8][+base[base.length - 1 - i]]];
   return base + INV[c];
@@ -19,7 +19,7 @@ const SECRET = "sk-or-v1-" + "a1b2c3d4".repeat(8);
 describe("verhoeff", () => {
   test("accepts valid, rejects one-digit change", () => {
     expect(verhoeff(AADHAAR)).toBe(true);
-    const bad = AADHAAR.slice(0, -1) + ((+AADHAAR.at(-1) + 1) % 10);
+    const bad = AADHAAR.slice(0, -1) + ((+AADHAAR.at(-1)! + 1) % 10);
     expect(verhoeff(bad)).toBe(false);
   });
 });

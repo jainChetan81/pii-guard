@@ -8,7 +8,7 @@ import { Database } from 'bun:sqlite';
 const cli = join(import.meta.dir, '../bin/pii-guard.ts');
 const secret = 'syntheticPassword1234';
 const token = 'sk-or-v1-' + 'abcdef12'.repeat(8);
-function run(cwd, ...args) {
+function run(cwd: string, ...args: string[]) {
   const r = spawnSync('bun', [cli, ...args], { cwd, encoding: 'utf8' });
   expect(r.status).toBe(0);
   expect(r.stdout + r.stderr).not.toContain(secret);
@@ -27,15 +27,15 @@ test('export, replay and report protect values', () => {
     { type: 1, name: 'Duplicate', login: {password: secret} }
   ]));
   run(dir, 'known','export','--bw-json',bw,'--out',known);
-  const a = JSON.parse(readFileSync(known));
-  expect(a.items.find(x => x.value === secret).name).toBe('login.password');
-  expect(a.items.filter(x => x.value === secret)).toHaveLength(1);
-  expect(a.items.some(x => x.value === '123')).toBe(false);
-  expect(a.items.some(x => x.name === 'ssh.privateKey')).toBe(true);
-  expect(a.items.some(x => x.name === 'identity.ssn')).toBe(true);
+  const a = JSON.parse(readFileSync(known, 'utf8'));
+  expect(a.items.find((x: any) => x.value === secret).name).toBe('login.password');
+  expect(a.items.filter((x: any) => x.value === secret)).toHaveLength(1);
+  expect(a.items.some((x: any) => x.value === '123')).toBe(false);
+  expect(a.items.some((x: any) => x.name === 'ssh.privateKey')).toBe(true);
+  expect(a.items.some((x: any) => x.name === 'identity.ssn')).toBe(true);
   expect(statSync(known).mode & 0o777).toBe(0o600);
   run(dir, 'known','export','--bw-json',bw,'--out',known);
-  expect(JSON.parse(readFileSync(known)).salt).toBe(a.salt);
+  expect(JSON.parse(readFileSync(known, 'utf8')).salt).toBe(a.salt);
   const claude = join(dir,'.claude/projects/project/subagents'), codex = join(dir,'.codex/sessions'), t3 = join(dir,'.t3/userdata');
   for (const p of [claude,codex,t3]) mkdirSync(p,{recursive:true});
   writeFileSync(join(claude,'one.jsonl'), JSON.stringify({role:'user',content:`hello ${secret} and ${token}`})+'\ninvalid\n');
@@ -43,7 +43,7 @@ test('export, replay and report protect values', () => {
   const db = new Database(join(t3,'statev2.sqlite'));
   db.run('CREATE TABLE orchestration_v2_projection_turn_items (payload_json TEXT, updated_at TEXT)');
   db.run('INSERT INTO orchestration_v2_projection_turn_items VALUES (?, ?)', [JSON.stringify({role:'user',content:secret}), new Date().toISOString()]); db.close();
-  expect(run(dir,'replay','--home',dir,'--known',known,'--context')).toMatch(/Report: .*reports\/replay-\d{8}-\d{4}\.md/);
+  expect(run(dir,'replay','--home',dir,'--known',known,'--context')).toMatch(/Report: .*reports\/replay-\d{8}-\d{6}\.md/);
   const md = readFileSync(join(dir,'reports',readdirSync(join(dir,'reports'))[0]),'utf8');
   expect(md).toContain('login.password'); expect(md).toContain('parse errors: 1');
   expect(md).not.toContain(secret); expect(md).not.toContain(token);
@@ -57,7 +57,7 @@ test('stdin replay scans only stdin', () => {
   const dir = mkdtempSync(join(tmpdir(), 'pii-cli-'));
   mkdirSync(join(dir,'.claude/projects/p'),{recursive:true});
   writeFileSync(join(dir,'.claude/projects/p/a.jsonl'), JSON.stringify({role:'user',content:token})+'\n');
-  const r = spawnSync('bun', [cli,'replay','--stdin','--label','remote','--home',dir,'--known',join(dir,'none.json')], { cwd: dir, encoding: 'utf8', input: JSON.stringify({role:'user',content:token})+'\n' });
+  const r = spawnSync('bun', [cli,'replay','--stdin','--label','remote','--home',dir], { cwd: dir, encoding: 'utf8', input: JSON.stringify({role:'user',content:token})+'\n' });
   expect(r.status).toBe(0);
   expect(r.stdout).toContain('Replay: 1 sources');
   expect(r.stdout + r.stderr).not.toContain(token);
