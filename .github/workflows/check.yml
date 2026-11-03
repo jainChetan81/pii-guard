@@ -6,5 +6,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils
       - run: bun install --frozen-lockfile
       - run: bun run check
