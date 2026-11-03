@@ -14,6 +14,18 @@ export function verhoeff(digits: string): boolean {
 
 const digitsOnly = (s: string) => s.replace(/\D/g, "");
 
+function luhn(value: string): boolean {
+  const digits = digitsOnly(value);
+  if (digits.length < 13 || digits.length > 19 || /^(.)\1+$/.test(digits)) return false;
+  let sum = 0;
+  for (let i = digits.length - 1, double = false; i >= 0; i--, double = !double) {
+    let digit = +digits[i];
+    if (double) { digit *= 2; if (digit > 9) digit -= 9; }
+    sum += digit;
+  }
+  return sum % 10 === 0;
+}
+
 export interface Rule {
   id: string;
   kind: "pii" | "secret";
@@ -25,7 +37,11 @@ export interface Rule {
 // keyword: regex that must appear within KEYWORD_WINDOW chars before or after.
 // null keyword = format is distinctive enough on its own.
 export const RULES: Rule[] = [
+  { id: "email", kind: "pii", re: /(?<![\w.+-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.[A-Za-z]{2,63}\b/g, keyword: null },
+  { id: "credit_card", kind: "pii", re: /(?<![\w-])\d(?:[ -]?\d){12,18}(?![\w-])/g, check: luhn, keyword: /card|visa|mastercard|amex/i },
   // India
+  { id: "vehicle_in", kind: "pii", re: /\b(?:AP|AR|AS|BR|CG|CH|DD|DL|DN|GA|GJ|HP|HR|JH|JK|KA|KL|LA|LD|MH|ML|MN|MP|MZ|NL|OD|OR|PB|PY|RJ|SK|TN|TR|TS|TG|UK|UP|UT|WB)[ -]?\d{1,2}[ -]?[A-Z]{1,3}[ -]?\d{1,4}\b|\b\d{2}[ -]?BH[ -]?\d{4}[ -]?[A-Z]{1,2}\b/g, keyword: /reg(?:istration|n)?\b|vehicle|number plate|motorcycle|bike/i },
+  { id: "driving_license_in", kind: "pii", re: /\b[A-Z]{2}[ -]?\d{2}[ -]?(?:19|20)\d{2}[ -]?\d{7}\b/g, keyword: /licen[cs]e|driving|\bdl\b/i },
   { id: "aadhaar", kind: "pii", re: /(?<![\w-])[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?![\w-])/g,
     check: (v: string) => verhoeff(digitsOnly(v)), keyword: /aadhaa?r|uidai|\buid\b|आधार/i },
   { id: "pan", kind: "pii", re: /\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b/g,

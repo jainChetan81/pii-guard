@@ -7,14 +7,18 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Digit-only values (phones, card numbers) may appear with spaces or dashes,
 // and phones with a +91 / 0 prefix. Match the bare digits with optional separators.
-function knownPattern(value: string): string {
+function knownPattern(value: string, category?: string): string {
+  if (category === "id" && /^[A-Z0-9 -]{6,30}$/.test(value)) {
+    return `${esc(value)}|(?<![A-Za-z0-9])${value.replace(/[ -]/g, "").split("").map(esc).join("[ \\t-]*")}(?![A-Za-z0-9])`;
+  }
   const digits = value.replace(/[\s-]/g, "");
   if (/^\+?\d{10,19}$/.test(digits)) {
     const raw = digits.replace(/^\+/, "");
     const core = raw.replace(/^(?:91|0)(?=[6-9]\d{9}$)/, "");
-    const prefix = /^[6-9]\d{9}$/.test(core) ? "(?:(?:\\+?91|0)[ -]?)?" : "(?:\\+[ -]?)?";
-    return `(?<![\\d+])${prefix}${core.split("").join("[ -]?")}(?!\\d)`;
+    const prefix = /^[6-9]\d{9}$/.test(core) ? "(?:(?:\\+?91|0)[ \\t-]*)?" : "(?:\\+[ \\t-]*)?";
+    return `(?<![\\d+])(?:${esc(value)}|${prefix}${core.split("").join("[ \\t-]*")})(?!\\d)`;
   }
+  if (/^\d+$/.test(value)) return `(?<!\\d)${esc(value)}(?!\\d)`;
   return esc(value);
 }
 
@@ -46,7 +50,7 @@ export interface RedactResult {
 
 export interface Detector {
   scan: (text: string) => Finding[];
-  redact: (text: string) => RedactResult;
+  redact: (text: string, replacement?: string) => RedactResult;
   placeholder: (f: Finding) => string;
   hash: (v: string) => string;
   knownCount: number;
@@ -55,16 +59,19 @@ export interface Detector {
 export function createDetector({ known = [], salt = randomBytes(16), rules = RULES }: DetectorOptions = {}): Detector {
   const hash = (v: string) => createHmac("sha256", salt).update(v).digest("hex").slice(0, 12);
 
-  const byValue = new Map<string, string>();
-  for (const k of known) if (k?.value && !byValue.has(k.value)) byValue.set(k.value, k.name);
+  const byValue = new Map<string, KnownItem>();
+  for (const k of known) {
+    if (!k || typeof k.value !== "string" || !k.value || typeof k.name !== "string" || !k.name) throw Error("Invalid known item");
+    if (!byValue.has(k.value)) byValue.set(k.value, k);
+  }
   // Longest first so a value that contains another value wins.
   const entries = [...byValue].sort((a, b) => b[0].length - a[0].length);
   const knownRe = entries.length
-    ? new RegExp(entries.map(([v], i) => `(?<k${i}>${knownPattern(v)})`).join("|"), "g")
+    ? new RegExp(entries.map(([v, k], i) => `(?<k${i}>${knownPattern(v, k.category)})`).join("|"), "g")
     : null;
 
   function scan(text: string): Finding[] {
-    if (typeof text !== "string" || text.length < 6) return [];
+    if (typeof text !== "string" || !text.length) return [];
     const out: Finding[] = [];
     if (knownRe) {
       for (const m of text.matchAll(knownRe)) {
@@ -72,7 +79,8 @@ export function createDetector({ known = [], salt = randomBytes(16), rules = RUL
         const key = Object.keys(m.groups).find((g) => m.groups![g] !== undefined);
         if (!key) continue;
         const i = +key.slice(1);
-        const [value, name] = entries[i];
+        // A formatted alias must not steal the identity of an exact configured value.
+        const { value, name } = byValue.get(m[0]) ?? entries[i][1];
         out.push({ start: m.index, end: m.index + m[0].length, rule: "known", kind: "known", name, hash: hash(value) });
       }
     }
@@ -95,24 +103,35 @@ export function createDetector({ known = [], salt = randomBytes(16), rules = RUL
   const placeholder = (f: Finding) => (f.rule === "known" ? `{{vault:${f.name}}}` : `{{pii:${f.rule}#${f.hash.slice(0, 6)}}}`);
 
   // Redact mode is not wired anywhere yet; observe mode only calls scan().
-  function redact(text: string): RedactResult {
+  function redact(text: string, replacement?: string): RedactResult {
     const findings = scan(text);
     let s = text;
-    for (const f of [...findings].sort((a, b) => b.start - a.start)) s = s.slice(0, f.start) + placeholder(f) + s.slice(f.end);
+    for (const f of mergeSpans(findings).reverse()) s = s.slice(0, f.start) + (replacement ?? placeholder(f)) + s.slice(f.end);
     return { text: s, findings };
   }
 
   return { scan, redact, placeholder, hash, knownCount: entries.length };
 }
 
-// Overlapping spans: keep own-list matches over pattern matches, then the longer span.
 function dedupe(findings: Finding[]): Finding[] {
   findings.sort((a, b) => a.start - b.start || (a.rule === "known" ? 0 : 1) - (b.rule === "known" ? 0 : 1) || b.end - a.end);
+  let knownEnd = -1, patternEnd = -1;
+  return findings.filter(f => {
+    if (f.rule === "known") { knownEnd = Math.max(knownEnd, f.end); return true; }
+    if (f.end <= Math.max(knownEnd, patternEnd)) return false;
+    patternEnd = f.end;
+    return true;
+  });
+}
+
+// Observation retains identities; redaction must cover the complete overlapping span.
+function mergeSpans(findings: Finding[]): Finding[] {
   const out: Finding[] = [];
   for (const f of findings) {
     const last = out[out.length - 1];
     if (last && f.start < last.end) {
-      if (f.rule === "known" && last.rule !== "known") out[out.length - 1] = f;
+      const winner = f.rule === "known" && last.rule !== "known" ? f : last;
+      out[out.length - 1] = { ...winner, start: last.start, end: Math.max(last.end, f.end) };
       continue;
     }
     out.push(f);
