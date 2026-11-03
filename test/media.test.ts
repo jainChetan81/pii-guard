@@ -70,7 +70,7 @@ test("failed PDF tools and weak OCR do not look like complete scans", () => {
 });
 
 function pdf(text: string): Buffer {
-  const stream = `BT /F1 20 Tf 50 750 Td (${text}) Tj ET`;
+  const stream = `BT /F1 24 Tf 50 750 Td ${text.split("\n").map(line => `(${line}) Tj 0 -40 Td`).join(" ")} ET`;
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
     "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
@@ -88,7 +88,7 @@ test.skipIf(!hasOcr || !hasPdf)("PDF text and rasterized page both detect synthe
   const dir = mkdtempSync(join(tmpdir(), "pii-pdf-test-"));
   try {
     const file = join(dir, "synthetic.pdf");
-    writeFileSync(file, pdf("PAN: ABCPE1234F   Registration: KA01AB1234"));
+    writeFileSync(file, pdf("PAN: ABCPE1234F\nRegistration: KA22MN5678"));
     const r = scanFile(file, createDetector());
     expect(r.status).toBe("scanned");
     expect(r.pages).toBe(1);
