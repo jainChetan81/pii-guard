@@ -22,8 +22,9 @@ let patternDetector = createDetector();
 // Labels are untrusted metadata. Mask detected values and markdown controls.
 function label(s) {
   s = String(s ?? '-').replace(/[\r\n\x00-\x1f|`<>]/g, '_').slice(0, 200);
+  // Names and paths stay readable; only pattern-detected values are masked.
   for (const f of patternDetector.scan(s).reverse()) s = s.slice(0, f.start) + '[V]' + s.slice(f.end);
-  return s.replace(/[A-Za-z0-9_~\-.@+=]+/g, v => v.length >= 8 && /[A-Za-z]/.test(v) && /\d/.test(v) ? '[V]' : v);
+  return s;
 }
 function sinceDate(s) {
   if (!s) return 0;
@@ -118,7 +119,7 @@ async function replay() {
   const detector = createDetector({ known: known?.items || [], ...(known ? { salt: known.salt } : {}) });
   patternDetector = detector;
   const categories = new Map((known?.items || []).map(x => [x.name, x.category]));
-  const selected = o.source ? o.source.split(',') : ['claude','codex','t3','9router'];
+  const selected = o.source ? o.source.split(',') : o.stdin ? [] : ['claude','codex','t3','9router'];
   if (selected.some(s => !['claude','codex','t3','9router'].includes(s))) throw Error('Invalid source');
   if (o.stdin && !o.label) throw Error('--stdin requires --label');
   const reports = [], seen = new Set();

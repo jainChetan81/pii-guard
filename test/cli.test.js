@@ -43,7 +43,7 @@ test('export, replay and report protect values', () => {
   const db = new Database(join(t3,'statev2.sqlite'));
   db.run('CREATE TABLE orchestration_v2_projection_turn_items (payload_json TEXT, updated_at TEXT)');
   db.run('INSERT INTO orchestration_v2_projection_turn_items VALUES (?, ?)', [JSON.stringify({role:'user',content:secret}), new Date().toISOString()]); db.close();
-  run(dir,'replay','--home',dir,'--known',known,'--context');
+  expect(run(dir,'replay','--home',dir,'--known',known,'--context')).toMatch(/Report: .*reports\/replay-\d{8}-\d{4}\.md/);
   const md = readFileSync(join(dir,'reports',readdirSync(join(dir,'reports'))[0]),'utf8');
   expect(md).toContain('login.password'); expect(md).toContain('parse errors: 1');
   expect(md).not.toContain(secret); expect(md).not.toContain(token);
@@ -52,4 +52,13 @@ test('export, replay and report protect values', () => {
   const output = run(dir,'report','--events',events);
   expect(output).toContain('Requests with findings: 1 / 1');
   expect(output).toContain('login.password: 2');
+});
+test('stdin replay scans only stdin', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pii-cli-'));
+  mkdirSync(join(dir,'.claude/projects/p'),{recursive:true});
+  writeFileSync(join(dir,'.claude/projects/p/a.jsonl'), JSON.stringify({role:'user',content:token})+'\n');
+  const r = spawnSync('bun', [cli,'replay','--stdin','--label','remote','--home',dir,'--known',join(dir,'none.json')], { cwd: dir, encoding: 'utf8', input: JSON.stringify({role:'user',content:token})+'\n' });
+  expect(r.status).toBe(0);
+  expect(r.stdout).toContain('Replay: 1 sources');
+  expect(r.stdout + r.stderr).not.toContain(token);
 });
