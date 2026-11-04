@@ -84,7 +84,7 @@ export const RULES: Rule[] = [
   { id: "jwt", kind: "secret", re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, keyword: null },
   { id: "connection_string", kind: "secret", re: /\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]+:[^\s@/'"]+@[^\s/?#'"]+/gi, keyword: null },
   // Value only, so redaction keeps the key name readable.
-  { id: "assigned_secret", kind: "secret", re: /(?<=(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|client_secret|api[_-]?key|access[_-]?token|auth[_-]?token)["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"'`&,;()]{8,}/gi, check: assignedSecret, keyword: null },
+  { id: "assigned_secret", kind: "secret", re: /(?<=(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|client_secret|api[_-]?key|token|access[_-]?token|auth[_-]?token)["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"'`&,;()]{8,}/gi, check: assignedSecret, keyword: null },
   { id: "private_key", kind: "secret", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, keyword: null },
 ];
 

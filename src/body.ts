@@ -50,9 +50,11 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
     }
     if (!node || typeof node !== "object") return node;
     const own = TYPES.has(node.type) ? node.type : "-";
+    // Signed thinking must be replayed byte-for-byte (the provider rejects edits), so it is readonly.
+    const signed = ctx.ro || (node.type === "thinking" && typeof node.signature === "string");
     const next: Context = ROLES.has(node.role)
-      ? { role: node.role, type: own, ro: ctx.ro }
-      : { role: ctx.role, type: ctx.type === "-" ? own : ctx.type, ro: ctx.ro };
+      ? { role: node.role, type: own, ro: signed }
+      : { role: ctx.role, type: ctx.type === "-" ? own : ctx.type, ro: signed };
     // Metadata copies are scanned but cannot be rewritten in the real body.
     const copy: Context = { ...next, ro: true };
     const skip = new Set<string>();
@@ -129,6 +131,7 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
     }
     return node;
   }
-  walk(body, { role: "-", type: "-" }, "");
+  // A bare string body cannot be edited in place, so its findings are readonly.
+  walk(body, { role: "-", type: "-", ro: typeof body === "string" }, "");
   return result;
 }

@@ -46,3 +46,11 @@ test("no edit callback leaves body unchanged", () => {
   scanBody(body, d);
   expect(JSON.stringify(body)).toBe(before);
 });
+
+test("signed thinking and bare string bodies are readonly", () => {
+  const thinking = { messages: [{ role: "assistant", content: [{ type: "thinking", thinking: `t ${KEY}`, signature: "sig" }] }] };
+  const r = scanBody(thinking, d, undefined, t => d.redact(t).text);
+  expect(r.findings.every(f => f.readonly)).toBe(true);
+  expect(JSON.stringify(thinking)).toContain(KEY);
+  expect(scanBody(KEY, d, undefined, t => d.redact(t).text).findings.every(f => f.readonly)).toBe(true);
+});
