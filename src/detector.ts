@@ -1,7 +1,7 @@
 // Core detector: own-list exact match first, then rule patterns.
 // No runtime deps; runs as .ts in Bun and Node >= 22.18 with type stripping.
 // Node builds without TypeScript (Debian /usr/bin/node) load `bun run build` output, dist/index.js.
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { RULES, KEYWORD_WINDOW, type Rule } from "./rules.ts";
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -61,10 +61,10 @@ export interface Detector {
 
 export function createDetector({ known = [], salt = randomBytes(16), rules = RULES }: DetectorOptions = {}): Detector {
   const hash = (v: string) => createHmac("sha256", salt).update(v).digest("hex").slice(0, 12);
-  const scanCache = new Map<string, { findings: Finding[]; chars: number }>();
-  let cachedChars = 0;
-  const MAX_CACHE_CHARS = 32_000_000;
+  // Keyed by a digest so the cache never holds request text; only findings (offsets and hashes) are kept.
+  const scanCache = new Map<string, Finding[]>();
   const MAX_CACHE_ENTRIES = 20_000;
+  const digest = (t: string, c = "") => createHash("sha256").update(t).update("\0").update(c).digest("base64");
 
   const byValue = new Map<string, KnownItem>();
   for (const k of known) {
@@ -79,13 +79,13 @@ export function createDetector({ known = [], salt = randomBytes(16), rules = RUL
 
   function scan(text: string, context?: string): Finding[] {
     if (typeof text !== "string" || !text.length) return [];
-    const cacheKey = text.length >= 256 ? `${text.length}:${text}${context ?? ""}` : undefined;
+    const cacheKey = text.length >= 256 ? digest(text, context) : undefined;
     if (cacheKey !== undefined) {
       const cached = scanCache.get(cacheKey);
       if (cached) {
         scanCache.delete(cacheKey);
         scanCache.set(cacheKey, cached);
-        return cached.findings.map(f => ({ ...f }));
+        return cached.map(f => ({ ...f }));
       }
     }
     const out: Finding[] = [];
@@ -114,15 +114,9 @@ export function createDetector({ known = [], salt = randomBytes(16), rules = RUL
       }
     }
     const findings = dedupe(out);
-    if (cacheKey !== undefined && cacheKey.length <= MAX_CACHE_CHARS) {
-      while (scanCache.size >= MAX_CACHE_ENTRIES || cachedChars + cacheKey.length > MAX_CACHE_CHARS) {
-        const oldest = scanCache.keys().next().value as string | undefined;
-        if (oldest === undefined) break;
-        cachedChars -= scanCache.get(oldest)!.chars;
-        scanCache.delete(oldest);
-      }
-      scanCache.set(cacheKey, { findings: findings.map(f => ({ ...f })), chars: cacheKey.length });
-      cachedChars += cacheKey.length;
+    if (cacheKey !== undefined) {
+      if (scanCache.size >= MAX_CACHE_ENTRIES) scanCache.delete(scanCache.keys().next().value!);
+      scanCache.set(cacheKey, findings.map(f => ({ ...f })));
     }
     return findings;
   }

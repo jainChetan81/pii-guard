@@ -49,6 +49,9 @@ function privateIp(v: string): boolean {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
 }
 
+// Shared by ip_address and ip_private so the version-string guards cannot drift. matchAll clones the regex.
+const IPV4 = /(?<![\w.])(?<!\b(?:v|ver|version|release|build)[\s:=@-]{0,3})(?:\d{1,3}\.){3}\d{1,3}(?![\w.]*\d)(?!\.\w)/g;
+
 // `token: string`, `password: z.string()` and env lookups are code, not secrets.
 // Template text such as YOUR_DB_PASSWORD, masked values (gho_****) and elided ones (sk-proj-...) are not secrets.
 const PLACEHOLDER = /your[-_]|[-_]here\b|change-?me|placeholder|dummy|not[-_]a[-_]real|example|\*{3}|\.\.\.|…|\$\{|\}\}|[^\x20-\x7e]/i;
@@ -73,8 +76,8 @@ export const RULES: Rule[] = [
   // "name (at) host dot com", "name [at] host [dot] com", "name%40host.com"
   { id: "email_obfuscated", kind: "pii", re: /(?<![\w.+-])[A-Za-z0-9._+-]{1,64}(?:\s*[([{]\s*at\s*[)\]}]\s*|%40)[A-Za-z0-9-]+(?:(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z0-9-]+)*(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z]{2,63}\b/gi, keyword: null },
   { id: "us_ssn", kind: "pii", re: /(?<![\w-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\w-])/g, keyword: /\bssn\b|social security/i },
-  { id: "ip_address", kind: "pii", re: /(?<![\w.])(?<!\b(?:v|ver|version|release|build)[\s:=@-]{0,3})(?:\d{1,3}\.){3}\d{1,3}(?![\w.]*\d)(?!\.\w)/g, check: publicIp, keyword: null },
-  { id: "ip_private", kind: "pii", re: /(?<![\w.])(?<!\b(?:v|ver|version|release|build)[\s:=@-]{0,3})(?:\d{1,3}\.){3}\d{1,3}(?![\w.]*\d)(?!\.\w)/g, check: privateIp, keyword: null },
+  { id: "ip_address", kind: "pii", re: IPV4, check: publicIp, keyword: null },
+  { id: "ip_private", kind: "pii", re: IPV4, check: privateIp, keyword: null },
   { id: "credit_card", kind: "pii", re: /(?<![\w-])\d(?:[ -]?\d){12,18}(?![\w-])/g, check: luhn, keyword: /card|visa|mastercard|amex/i },
   // India
   { id: "vehicle_in", kind: "pii", re: /\b(?:AP|AR|AS|BR|CG|CH|DD|DL|DN|GA|GJ|HP|HR|JH|JK|KA|KL|LA|LD|MH|ML|MN|MP|MZ|NL|OD|OR|PB|PY|RJ|SK|TN|TR|TS|TG|UK|UP|UT|WB)[ -]?\d{1,2}[ -]?[A-Z]{1,3}[ -]?\d{1,4}\b|\b\d{2}[ -]?BH[ -]?\d{4}[ -]?[A-Z]{1,2}\b/g, keyword: /reg(?:istration|n)?\b|vehicle|number plate|motorcycle|bike/i },

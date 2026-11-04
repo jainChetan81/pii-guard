@@ -16,21 +16,23 @@ export interface BodyFinding extends Finding {
 // Returns the replacement text. Receives the findings already computed for this string, so nothing is scanned twice.
 export type BodyEdit = (text: string, findings: BodyFinding[]) => string;
 
-function siblingContext(fields: [string, any][], except: number): string {
+// Sibling keys and short values give keyword-gated rules context, e.g. {"label":"PAN","value":"..."}.
+const CONTEXT_CHARS = 512, SHORT_VALUE = 64;
+function siblingContext(fields: [string, unknown][], except: number): string {
   const parts: string[] = [];
   let chars = 0;
   const add = (value: string) => {
-    if (chars >= 512) return;
+    if (chars >= CONTEXT_CHARS) return;
     const separator = parts.length ? " " : "";
-    const part = value.slice(0, 512 - chars - separator.length);
+    const part = value.slice(0, CONTEXT_CHARS - chars - separator.length);
     if (!part) return;
     parts.push(part);
     chars += separator.length + part.length;
   };
-  for (let i = 0; i < fields.length && chars < 512; i++) {
+  for (let i = 0; i < fields.length && chars < CONTEXT_CHARS; i++) {
     const [key, value] = fields[i];
     add(key);
-    if (i !== except && typeof value === "string" && value.length <= 64) add(value);
+    if (i !== except && typeof value === "string" && value.length <= SHORT_VALUE) add(value);
   }
   return parts.join(" ");
 }
@@ -146,8 +148,8 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
       }
       // Even structural-looking fields can contain user data. Do not skip by key alone.
       const field = PATH_KEYS.has(key) ? key : `[field:${index}]`;
-      const scanContext = typeof value === "string" || (typeof value === "number" && Number.isFinite(value)) ? siblingContext(fields, index) : undefined;
-      const out = walk(value, next, path ? `${path}.${field}` : field, depth + 1, scanContext);
+      const siblings = typeof value === "string" || (typeof value === "number" && Number.isFinite(value)) ? siblingContext(fields, index) : undefined;
+      const out = walk(value, next, path ? `${path}.${field}` : field, depth + 1, siblings);
       if (out !== value) node[key] = out;
     }
     return node;
