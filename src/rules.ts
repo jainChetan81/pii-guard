@@ -44,6 +44,7 @@ function privateIp(v: string): boolean {
   const o = v.split(".").map(Number);
   if (o.some(n => n > 255)) return false;
   const [a, b, , d] = o;
+  // ponytail: .0/.255 skipped as CIDR/broadcast noise; misses rare x.y.z.0 hosts in a /16. Read the prefix length if that matters.
   if (d === 0 || d === 255) return false;
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
 }
