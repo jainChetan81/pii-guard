@@ -8,7 +8,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsc && bun test",
+    "build": "bun build src/index.ts --target=node --outfile dist/index.js",
+    "check": "tsc && bun test && bun run build",
     "test": "bun test"
   },
   "license": "MIT",

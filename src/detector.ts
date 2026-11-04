@@ -1,5 +1,6 @@
 // Core detector: own-list exact match first, then rule patterns.
-// No runtime deps; runs as .ts in Bun and Node >= 22.18 (type stripping).
+// No runtime deps; runs as .ts in Bun and Node >= 22.18 with type stripping.
+// Node builds without TypeScript (Debian /usr/bin/node) load `bun run build` output, dist/index.js.
 import { createHmac, randomBytes } from "node:crypto";
 import { RULES, KEYWORD_WINDOW, type Rule } from "./rules.ts";
 

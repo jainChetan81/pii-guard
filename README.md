@@ -59,6 +59,18 @@ Reports show unscanned image, file/audio, and opaque signed/encrypted fields.
 Legacy router events omit clean requests. The CLI separates those events from completed aggregate windows.
 A findings ratio over recorded events is not a traffic-wide leak rate.
 
+## 9Router
+
+9Router loads the scanner from `PII_GUARD_MODULE`, an absolute path.
+Debian `/usr/bin/node` has no TypeScript support, so point it at the built file:
+
+```sh
+bun run build   # writes dist/index.js
+```
+
+Set `PII_GUARD_MODULE=/home/chetan/Projects/pii-guard/dist/index.js` in the 9Router service.
+Rebuild after each pull; the gateway loads the module once per process.
+
 ## Images and PDFs
 
 Install local OCR utilities. No image goes to a hosted OCR service.
