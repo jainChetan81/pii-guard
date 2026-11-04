@@ -27,7 +27,7 @@ function luhn(value: string): boolean {
 }
 
 // Placeholder and bot addresses that are never personal data.
-const EMAIL_IGNORE = /^(?:no-?reply|do-?not-?reply|git)@|@(?:[\w-]+\.)*example\.(?:com|org|net)$|@users\.noreply\.github\.com$/i;
+const EMAIL_IGNORE = /^(?:no-?reply|do-?not-?reply|git)@|@(?:[\w-]+\.)*example\.(?:com|org|net)$|@users\.noreply\.github\.com$|\.(?:internal|local|localhost|invalid)$/i;
 
 // Private, loopback, link-local, CGNAT, documentation and well-known public DNS addresses.
 function publicIp(v: string): boolean {
@@ -41,7 +41,13 @@ function publicIp(v: string): boolean {
 }
 
 // `token: string`, `password: z.string()` and env lookups are code, not secrets.
-const assignedSecret = (v: string) => !/^(?:[$<[{\\*]|process\.env|os\.environ|env\.|import\.meta|self\.|this\.)/.test(v) && (/\d/.test(v) && /[A-Za-z]/.test(v) || v.length >= 16);
+// Template text such as YOUR_DB_PASSWORD, masked values (gho_****) and elided ones (sk-proj-...) are not secrets.
+const PLACEHOLDER = /your[-_]|[-_]here\b|change-?me|placeholder|dummy|not[-_]a[-_]real|example|\*{3}|\.\.\.|…|\$\{|\}\}|[^\x20-\x7e]/i;
+const assignedSecret = (v: string) => !/^(?:-?[$<[{\\*~/.]|process\.env|os\.environ|env\.|import\.meta|self\.|this\.)/.test(v)
+  && !PLACEHOLDER.test(v) && !/^\d+$/.test(v)
+  // Member access such as `request.headers.get` or `creds.accessToken` is code.
+  && !/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:\(\))?$/.test(v)
+  && (/\d/.test(v) && /[A-Za-z]/.test(v) || v.length >= 16);
 
 export interface Rule {
   id: string;
@@ -82,9 +88,9 @@ export const RULES: Rule[] = [
   { id: "google_api_key", kind: "secret", re: /\bAIza[0-9A-Za-z_-]{35}\b/g, keyword: null },
   { id: "stripe_key", kind: "secret", re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}/g, keyword: null },
   { id: "jwt", kind: "secret", re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, keyword: null },
-  { id: "connection_string", kind: "secret", re: /\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]+:[^\s@/'"]+@[^\s/?#'"]+/gi, keyword: null },
+  { id: "connection_string", kind: "secret", re: /\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]+:[^\s@/'"]+@[^\s/?#'"`]+/gi, check: v => !/:\/\/[^:]*:(?:pass(?:word)?|secret|\*+|x+)@/i.test(v) && !PLACEHOLDER.test(v.replace(/^[^:]+:\/\//, "")), keyword: null },
   // Value only, so redaction keeps the key name readable.
-  { id: "assigned_secret", kind: "secret", re: /(?<=(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|client_secret|api[_-]?key|token|access[_-]?token|auth[_-]?token)["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"'`&,;()]{8,}/gi, check: assignedSecret, keyword: null },
+  { id: "assigned_secret", kind: "secret", re: /(?<=(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|client_secret|api[_-]?key|token|access[_-]?token|auth[_-]?token)["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"'`&,;()\\]{8,}/gi, check: assignedSecret, keyword: null },
   { id: "private_key", kind: "secret", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, keyword: null },
 ];
 
