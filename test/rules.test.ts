@@ -44,3 +44,17 @@ test("assigned secret inside env-style names", () => {
   for (const s of [`token=${FAKE}Secret!`, `DB_PASSWORD=${FAKE}`, `STRIPE_SECRET=${FAKE}`, `MY_API_KEY: ${FAKE}`]) expect(rules(s)).toEqual(["assigned_secret"]);
   expect(rules(`compassword=${FAKE}`)).toEqual([]);
 });
+
+test("reserved-domain emails and placeholder secrets are ignored", () => {
+  for (const s of [
+    "admin@db.internal", "svc@printer.local",
+    "accessToken: newCreds.accessToken", "const token = request.headers.get('x')",
+    "POSTGRES_PASSWORD=YOUR_DB_PASSWORD", "ANTHROPIC_API_KEY=your-key-here", "OPENAI_API_KEY=sk-proj-...",
+    "Token: gho_************************************", "page_token='13296514984237052716'",
+    "login token: ~/.google_workspace_mcp/credentials/", "a {{secret:openrouter_key}} b",
+    "K=${ANTHROPIC_AUTH_TOKEN:-$ANTHROPIC_API_KEY}", "secret: True\\n600",
+    "e.g. `scheme://user:pass@host`", "postgres://miniflux:YOUR_DB_PASSWORD@db",
+  ]) expect(rules(s)).toEqual([]);
+  expect(rules(`client secret: GOCSPX-${FAKE}abcdEFGH`)).toEqual(["assigned_secret"]);
+  expect(rules(`postgres://app:${FAKE}@db.prod.acme.io/x`)).toEqual(["connection_string"]);
+});
