@@ -44,7 +44,8 @@ describe("own list", () => {
   });
   test("redact uses stable placeholders", () => {
     const a = d.redact("pan ABCPE1234F and ABCPE1234F").text;
-    expect(a).toBe("pan {{vault:pan}} and {{vault:pan}}");
+    expect(a).toMatch(/^pan (\{\{vault:#[0-9a-f]{6}\}\}) and \1$/);
+    expect(a).not.toContain("pan}}");
   });
 });
 

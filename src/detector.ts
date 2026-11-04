@@ -103,7 +103,7 @@ export function createDetector({ known = [], salt = randomBytes(16), rules = RUL
     return dedupe(out);
   }
 
-  const placeholder = (f: Finding) => (f.rule === "known" ? `{{vault:${f.name}}}` : `{{pii:${f.rule}#${f.hash.slice(0, 6)}}}`);
+  const placeholder = (f: Finding) => (f.rule === "known" ? `{{vault:#${f.hash.slice(0, 6)}}}` : `{{pii:${f.rule}#${f.hash.slice(0, 6)}}}`);
 
   // Redact mode is not wired anywhere yet; observe mode only calls scan().
   function redact(text: string, replacement?: string): RedactResult {
