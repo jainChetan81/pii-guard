@@ -16,6 +16,27 @@ export interface BodyFinding extends Finding {
 // Returns the replacement text. Receives the findings already computed for this string, so nothing is scanned twice.
 export type BodyEdit = (text: string, findings: BodyFinding[]) => string;
 
+// Sibling keys and short values give keyword-gated rules context, e.g. {"label":"PAN","value":"..."}.
+const CONTEXT_CHARS = 512, SHORT_VALUE = 64;
+function siblingContext(fields: [string, unknown][], except: number): string {
+  const parts: string[] = [];
+  let chars = 0;
+  const add = (value: string) => {
+    if (chars >= CONTEXT_CHARS) return;
+    const separator = parts.length ? " " : "";
+    const part = value.slice(0, CONTEXT_CHARS - chars - separator.length);
+    if (!part) return;
+    parts.push(part);
+    chars += separator.length + part.length;
+  };
+  for (let i = 0; i < fields.length && chars < CONTEXT_CHARS; i++) {
+    const [key, value] = fields[i];
+    add(key);
+    if (i !== except && typeof value === "string" && value.length <= SHORT_VALUE) add(value);
+  }
+  return parts.join(" ");
+}
+
 export interface BodyScanResult {
   findings: BodyFinding[];
   images: number;
@@ -34,13 +55,13 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
   const result: BodyScanResult = { findings: [], images: 0, imageBytes: 0, chars: 0, unscanned: { images: 0, files: 0, opaque: 0 } };
 
   // Returns the replacement for a string node; any other node is edited in place.
-  function walk(node: any, ctx: Context, path: string, depth = 0): any {
+  function walk(node: any, ctx: Context, path: string, depth = 0, scanContext?: string): any {
     if (depth > 100) throw Error("Request nesting limit exceeded");
     // Numbers are scanned as text but never rewritten, so the body keeps its types.
-    if (typeof node === "number" && Number.isFinite(node)) { walk(String(node), { ...ctx, ro: true }, path, depth); return node; }
+    if (typeof node === "number" && Number.isFinite(node)) { walk(String(node), { ...ctx, ro: true }, path, depth, scanContext); return node; }
     if (typeof node === "string") {
       result.chars += node.length;
-      const found: BodyFinding[] = detector.scan(node).map(f => ({ ...f, source: `${ctx.role}/${ctx.type}`, path, ...(edit && ctx.ro && { readonly: true as const }) }));
+      const found: BodyFinding[] = detector.scan(node, scanContext).map(f => ({ ...f, source: `${ctx.role}/${ctx.type}`, path, ...(edit && ctx.ro && { readonly: true as const }) }));
       result.findings.push(...found);
       return edit && !ctx.ro && found.length ? edit(node, found) : node;
     }
@@ -117,7 +138,8 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
         walk(metadata, copy, `${path}.${key}`, depth + 1);
       } else { const out = walk(value, next, `${path}.${key}`, depth + 1); if (out !== value) node[key] = out; }
     }
-    for (const [index, [key, value]] of Object.entries(node).entries()) {
+    const fields = Object.entries(node);
+    for (const [index, [key, value]] of fields.entries()) {
       for (const f of detector.scan(key)) result.findings.push({ ...f, source: `${next.role}/${next.type}`, path: `${path}[key:${index}]`, ...(edit && { readonly: true as const }) });
       if (skip.has(key)) continue;
       if ((key === "signature" && node.type === "thinking") || (key === "data" && node.type === "redacted_thinking") || (key === "encrypted_content" && node.type === "reasoning")) {
@@ -126,7 +148,8 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
       }
       // Even structural-looking fields can contain user data. Do not skip by key alone.
       const field = PATH_KEYS.has(key) ? key : `[field:${index}]`;
-      const out = walk(value, next, path ? `${path}.${field}` : field, depth + 1);
+      const siblings = typeof value === "string" || (typeof value === "number" && Number.isFinite(value)) ? siblingContext(fields, index) : undefined;
+      const out = walk(value, next, path ? `${path}.${field}` : field, depth + 1, siblings);
       if (out !== value) node[key] = out;
     }
     return node;

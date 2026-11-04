@@ -35,9 +35,17 @@ test("US SSN needs keyword and valid areas", () => {
   for (const s of ["ssn 000-12-3456", "ssn 666-12-3456", "ssn 912-12-3456", "ssn 123-00-4567"]) expect(rules(s)).toEqual([]);
 });
 
-test("IP address: public only", () => {
+test("IP addresses separate public and private ranges", () => {
   expect(rules("server at 52.14.200.7 now")).toEqual(["ip_address"]);
-  for (const s of ["127.0.0.1", "10.0.0.5", "192.168.1.1", "172.20.0.1", "100.101.2.3", "8.8.8.8", "203.0.113.9", "999.1.1.1", "12.0.0.0/8", "version 1.2.3.4.5", "version 1.2.3.4", "v 52.14.200.7", "build: 52.1.2.3", "v20.11.1.0-beta"]) expect(rules(s)).toEqual([]);
+  for (const s of ["172.15.1.2", "172.32.1.2", "100.63.1.2", "100.128.1.2"]) {
+    expect(rules(s)).toContain("ip_address");
+    expect(rules(s)).not.toContain("ip_private");
+  }
+  for (const s of ["10.0.0.5", "172.16.1.2", "172.31.1.2", "192.168.1.1", "100.64.1.2", "100.127.1.2"]) {
+    expect(rules(s)).toContain("ip_private");
+    expect(rules(s)).not.toContain("ip_address");
+  }
+  for (const s of ["127.0.0.1", "0.1.2.3", "10.1.2.0", "10.1.2.255", "10.1.256.2", "192.168.1.999", "8.8.8.8", "203.0.113.9", "999.1.1.1", "12.0.0.0/8", "version 1.2.3.4.5", "version 1.2.3.4", "version 10.1.2.3", "v 52.14.200.7", "build: 52.1.2.3", "v20.11.1.0-beta"]) expect(rules(s)).toEqual([]);
 });
 
 test("assigned secret inside env-style names", () => {

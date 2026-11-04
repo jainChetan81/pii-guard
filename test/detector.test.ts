@@ -76,6 +76,23 @@ describe("patterns need keywords for weak formats", () => {
   });
 });
 
+test("long scan results are cached without sharing mutable findings", () => {
+  const detector = createDetector({ known: [{ name: "secret", value: "cache-secret" }], rules: [] });
+  const text = `${"x".repeat(300)} cache-secret`;
+  const first = detector.scan(text);
+  const expected = first.map(f => ({ ...f }));
+  first[0].hash = "changed";
+  first.push({ ...first[0] });
+  expect(detector.scan(text)).toEqual(expected);
+});
+
+test("scan cache keeps context in its key", () => {
+  const detector = createDetector();
+  const text = `${"x".repeat(300)} ABCPE1234F`;
+  expect(detector.scan(text, "PAN").map(f => f.rule)).toEqual(["pan"]);
+  expect(detector.scan(text, "unrelated")).toEqual([]);
+});
+
 describe("scanBody", () => {
   const d = createDetector({ known: [{ name: "pan", value: "ABCPE1234F" }] });
   test("Anthropic tool_result source and skipped blobs", () => {
@@ -94,5 +111,13 @@ describe("scanBody", () => {
   test("OpenAI Responses function_call_output", () => {
     const body = { input: [{ type: "function_call_output", call_id: "c", output: "ABCPE1234F" }] };
     expect(scanBody(body, d).findings[0].source).toBe("-/function_call_output");
+  });
+
+  test("keyword context includes direct sibling keys and short string values", () => {
+    const detector = createDetector();
+    const body = { messages: [{ role: "user", content: { label: "PAN", value: "ABCPE1234F" } }] };
+    expect(scanBody(body, detector).findings.map(f => f.rule)).toContain("pan");
+    const unrelated = { messages: [{ role: "user", content: { label: "identifier", value: "ABCPE1234F" } }] };
+    expect(scanBody(unrelated, detector).findings).toEqual([]);
   });
 });
