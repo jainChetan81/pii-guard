@@ -41,7 +41,7 @@ function publicIp(v: string): boolean {
 }
 
 // `token: string`, `password: z.string()` and env lookups are code, not secrets.
-const assignedSecret = (v: string) => !/^(?:[$<\[{\\*]|process\.env|os\.environ|env\.|import\.meta|self\.|this\.)/.test(v) && (/\d/.test(v) && /[A-Za-z]/.test(v) || v.length >= 16);
+const assignedSecret = (v: string) => !/^(?:[$<[{\\*]|process\.env|os\.environ|env\.|import\.meta|self\.|this\.)/.test(v) && (/\d/.test(v) && /[A-Za-z]/.test(v) || v.length >= 16);
 
 export interface Rule {
   id: string;
@@ -58,7 +58,7 @@ export const RULES: Rule[] = [
   // "name (at) host dot com", "name [at] host [dot] com", "name%40host.com"
   { id: "email_obfuscated", kind: "pii", re: /(?<![\w.+-])[A-Za-z0-9._+-]{1,64}(?:\s*[([{]\s*at\s*[)\]}]\s*|%40)[A-Za-z0-9-]+(?:(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z0-9-]+)*(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z]{2,63}\b/gi, keyword: null },
   { id: "us_ssn", kind: "pii", re: /(?<![\w-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\w-])/g, keyword: /\bssn\b|social security/i },
-  { id: "ip_address", kind: "pii", re: /(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.]*\d)(?!\.\w)/g, check: publicIp, keyword: null },
+  { id: "ip_address", kind: "pii", re: /(?<![\w.])(?<!\b(?:v|ver|version|release|build)[\s:=@-]{0,3})(?:\d{1,3}\.){3}\d{1,3}(?![\w.]*\d)(?!\.\w)/g, check: publicIp, keyword: null },
   { id: "credit_card", kind: "pii", re: /(?<![\w-])\d(?:[ -]?\d){12,18}(?![\w-])/g, check: luhn, keyword: /card|visa|mastercard|amex/i },
   // India
   { id: "vehicle_in", kind: "pii", re: /\b(?:AP|AR|AS|BR|CG|CH|DD|DL|DN|GA|GJ|HP|HR|JH|JK|KA|KL|LA|LD|MH|ML|MN|MP|MZ|NL|OD|OR|PB|PY|RJ|SK|TN|TR|TS|TG|UK|UP|UT|WB)[ -]?\d{1,2}[ -]?[A-Z]{1,3}[ -]?\d{1,4}\b|\b\d{2}[ -]?BH[ -]?\d{4}[ -]?[A-Z]{1,2}\b/g, keyword: /reg(?:istration|n)?\b|vehicle|number plate|motorcycle|bike/i },
@@ -84,7 +84,7 @@ export const RULES: Rule[] = [
   { id: "jwt", kind: "secret", re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, keyword: null },
   { id: "connection_string", kind: "secret", re: /\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]+:[^\s@/'"]+@[^\s/?#'"]+/gi, keyword: null },
   // Value only, so redaction keeps the key name readable.
-  { id: "assigned_secret", kind: "secret", re: /(?<=\b(?:password|passwd|pwd|secret|client_secret|api[_-]?key|access[_-]?token|auth[_-]?token)["']?\s*[:=]\s*["']?)[^\s"'`&,;()]{8,}/gi, check: assignedSecret, keyword: null },
+  { id: "assigned_secret", kind: "secret", re: /(?<=(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|client_secret|api[_-]?key|access[_-]?token|auth[_-]?token)["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"'`&,;()]{8,}/gi, check: assignedSecret, keyword: null },
   { id: "private_key", kind: "secret", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, keyword: null },
 ];
 

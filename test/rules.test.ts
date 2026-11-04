@@ -36,5 +36,10 @@ test("US SSN needs keyword and valid areas", () => {
 
 test("IP address: public only", () => {
   expect(rules("server at 52.14.200.7 now")).toEqual(["ip_address"]);
-  for (const s of ["127.0.0.1", "10.0.0.5", "192.168.1.1", "172.20.0.1", "100.101.2.3", "8.8.8.8", "203.0.113.9", "999.1.1.1", "12.0.0.0/8", "version 1.2.3.4.5", "v20.11.1.0-beta"]) expect(rules(s)).toEqual([]);
+  for (const s of ["127.0.0.1", "10.0.0.5", "192.168.1.1", "172.20.0.1", "100.101.2.3", "8.8.8.8", "203.0.113.9", "999.1.1.1", "12.0.0.0/8", "version 1.2.3.4.5", "version 1.2.3.4", "v 52.14.200.7", "build: 52.1.2.3", "v20.11.1.0-beta"]) expect(rules(s)).toEqual([]);
+});
+
+test("assigned secret inside env-style names", () => {
+  for (const s of ["DB_PASSWORD=Xk82mPq0vL", "STRIPE_SECRET=Xk82mPq0vL", "MY_API_KEY: Xk82mPq0vL"]) expect(rules(s)).toEqual(["assigned_secret"]);
+  expect(rules("compassword=Xk82mPq0vL")).toEqual([]);
 });

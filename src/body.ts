@@ -28,17 +28,16 @@ export interface ImageInput { data?: string; mime?: string; source: string; path
 interface Context { role: string; type: string; ro?: boolean }
 
 // With `edit`, every scanned string that sits in the real body is replaced in place by edit's result.
+// Findings flagged `readonly` (object keys, numbers, media metadata copies) stay in the body: callers must block or report them.
+// The walk mutates as it goes; if it throws, discard the body. A bare string body cannot be edited in place.
 export function scanBody(body: unknown, detector: Detector, onImage?: (image: ImageInput) => void, edit?: BodyEdit): BodyScanResult {
   const result: BodyScanResult = { findings: [], images: 0, imageBytes: 0, chars: 0, unscanned: { images: 0, files: 0, opaque: 0 } };
 
   // Returns the replacement for a string node; any other node is edited in place.
   function walk(node: any, ctx: Context, path: string, depth = 0): any {
     if (depth > 100) throw Error("Request nesting limit exceeded");
-    if (typeof node === "number" && Number.isFinite(node)) {
-      const text = String(node);
-      const out = walk(text, { ...ctx, ro: true }, path, depth);
-      return out === text ? node : out;
-    }
+    // Numbers are scanned as text but never rewritten, so the body keeps its types.
+    if (typeof node === "number" && Number.isFinite(node)) { walk(String(node), { ...ctx, ro: true }, path, depth); return node; }
     if (typeof node === "string") {
       result.chars += node.length;
       const found: BodyFinding[] = detector.scan(node).map(f => ({ ...f, source: `${ctx.role}/${ctx.type}`, path, ...(edit && ctx.ro && { readonly: true as const }) }));
