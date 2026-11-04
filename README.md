@@ -1,7 +1,8 @@
 # pii-guard
 
-Local **observer** for known values and PII in agent requests, transcripts, images, and PDFs.
-It reports candidate findings. It does not block traffic, redact images, or prove that data is safe.
+Detector for known values and PII in agent requests, transcripts, images, and PDFs.
+The library finds candidates and can rewrite text in place (`scanBody(body, detector, onImage, edit)`).
+Policy (observe, redact, block) lives in the caller, e.g. 9Router. It does not redact images or prove that data is safe.
 
 [Research and existing tools](docs/research.md) | [Validation and next steps](docs/validation.md)
 
@@ -68,8 +69,9 @@ Debian `/usr/bin/node` has no TypeScript support, so point it at the built file:
 bun run build   # writes dist/index.js
 ```
 
-Set `PII_GUARD_MODULE=/home/chetan/Projects/pii-guard/dist/index.js` in the 9Router service.
+Set `PII_GUARD_MODULE=/absolute/path/to/pii-guard/dist/index.js` in the 9Router service.
 Rebuild after each pull; the gateway loads the module once per process.
+9Router's adapter (`src/lib/piiGuard/observe.js`) needs the `edit` callback added in this version for redact mode.
 
 ## Images and PDFs
 
