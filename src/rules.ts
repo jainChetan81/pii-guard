@@ -26,6 +26,23 @@ function luhn(value: string): boolean {
   return sum % 10 === 0;
 }
 
+// Placeholder and bot addresses that are never personal data.
+const EMAIL_IGNORE = /^(?:no-?reply|do-?not-?reply|git)@|@(?:[\w-]+\.)*example\.(?:com|org|net)$|@users\.noreply\.github\.com$/i;
+
+// Private, loopback, link-local, CGNAT, documentation and well-known public DNS addresses.
+function publicIp(v: string): boolean {
+  const o = v.split(".").map(Number);
+  if (o.some(n => n > 255)) return false;
+  const [a, b, c, d] = o;
+  if (d === 0 || d === 255) return false; // network or broadcast address, usually a CIDR or mask
+  if (a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)) return false;
+  if ((a === 192 && b === 0 && c === 2) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113)) return false;
+  return !["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "9.9.9.9"].includes(v);
+}
+
+// `token: string`, `password: z.string()` and env lookups are code, not secrets.
+const assignedSecret = (v: string) => !/^(?:[$<[{\\*]|process\.env|os\.environ|env\.|import\.meta|self\.|this\.)/.test(v) && (/\d/.test(v) && /[A-Za-z]/.test(v) || v.length >= 16);
+
 export interface Rule {
   id: string;
   kind: "pii" | "secret";
@@ -37,7 +54,11 @@ export interface Rule {
 // keyword: regex that must appear within KEYWORD_WINDOW chars before or after.
 // null keyword = format is distinctive enough on its own.
 export const RULES: Rule[] = [
-  { id: "email", kind: "pii", re: /(?<![\w.+-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.[A-Za-z]{2,63}\b/g, keyword: null },
+  { id: "email", kind: "pii", re: /(?<![\w.+-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.[A-Za-z]{2,63}\b/g, check: v => !EMAIL_IGNORE.test(v), keyword: null },
+  // "name (at) host dot com", "name [at] host [dot] com", "name%40host.com"
+  { id: "email_obfuscated", kind: "pii", re: /(?<![\w.+-])[A-Za-z0-9._+-]{1,64}(?:\s*[([{]\s*at\s*[)\]}]\s*|%40)[A-Za-z0-9-]+(?:(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z0-9-]+)*(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z]{2,63}\b/gi, keyword: null },
+  { id: "us_ssn", kind: "pii", re: /(?<![\w-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\w-])/g, keyword: /\bssn\b|social security/i },
+  { id: "ip_address", kind: "pii", re: /(?<![\w.])(?<!\b(?:v|ver|version|release|build)[\s:=@-]{0,3})(?:\d{1,3}\.){3}\d{1,3}(?![\w.]*\d)(?!\.\w)/g, check: publicIp, keyword: null },
   { id: "credit_card", kind: "pii", re: /(?<![\w-])\d(?:[ -]?\d){12,18}(?![\w-])/g, check: luhn, keyword: /card|visa|mastercard|amex/i },
   // India
   { id: "vehicle_in", kind: "pii", re: /\b(?:AP|AR|AS|BR|CG|CH|DD|DL|DN|GA|GJ|HP|HR|JH|JK|KA|KL|LA|LD|MH|ML|MN|MP|MZ|NL|OD|OR|PB|PY|RJ|SK|TN|TR|TS|TG|UK|UP|UT|WB)[ -]?\d{1,2}[ -]?[A-Z]{1,3}[ -]?\d{1,4}\b|\b\d{2}[ -]?BH[ -]?\d{4}[ -]?[A-Z]{1,2}\b/g, keyword: /reg(?:istration|n)?\b|vehicle|number plate|motorcycle|bike/i },
@@ -61,6 +82,9 @@ export const RULES: Rule[] = [
   { id: "google_api_key", kind: "secret", re: /\bAIza[0-9A-Za-z_-]{35}\b/g, keyword: null },
   { id: "stripe_key", kind: "secret", re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}/g, keyword: null },
   { id: "jwt", kind: "secret", re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, keyword: null },
+  { id: "connection_string", kind: "secret", re: /\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]+:[^\s@/'"]+@[^\s/?#'"]+/gi, keyword: null },
+  // Value only, so redaction keeps the key name readable.
+  { id: "assigned_secret", kind: "secret", re: /(?<=(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|client_secret|api[_-]?key|token|access[_-]?token|auth[_-]?token)["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"'`&,;()]{8,}/gi, check: assignedSecret, keyword: null },
   { id: "private_key", kind: "secret", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, keyword: null },
 ];
 

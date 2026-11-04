@@ -20,7 +20,7 @@ test("known short secrets, foreign phones, and formatted IDs", () => {
 test("redaction covers whole overlapping spans", () => {
   const token = "sk-or-v1-" + "abcdef12".repeat(8);
   const d = createDetector({ known: [{ name: "fragment", value: "abcdef12" }] });
-  expect(d.redact(token).text).toBe("{{vault:fragment}}");
+  expect(d.redact(token).text).toMatch(/^\{\{vault:#[0-9a-f]{6}\}\}$/);
 });
 
 test("exact configured identity wins over a formatted alias", () => {

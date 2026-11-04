@@ -1,7 +1,8 @@
 # pii-guard
 
-Local **observer** for known values and PII in agent requests, transcripts, images, and PDFs.
-It reports candidate findings. It does not block traffic, redact images, or prove that data is safe.
+Detector for known values and PII in agent requests, transcripts, images, and PDFs.
+The library finds candidates and can rewrite text in place (`scanBody(body, detector, onImage, edit)`).
+Policy (observe, redact, block) lives in the caller, e.g. 9Router. It does not redact images or prove that data is safe.
 
 [Research and existing tools](docs/research.md) | [Validation and next steps](docs/validation.md)
 
@@ -68,8 +69,9 @@ Debian `/usr/bin/node` has no TypeScript support, so point it at the built file:
 bun run build   # writes dist/index.js
 ```
 
-Set `PII_GUARD_MODULE=/home/chetan/Projects/pii-guard/dist/index.js` in the 9Router service.
+Set `PII_GUARD_MODULE=/absolute/path/to/pii-guard/dist/index.js` in the 9Router service.
 Rebuild after each pull; the gateway loads the module once per process.
+9Router's adapter (`src/lib/piiGuard/observe.js`) needs the `edit` callback added in this version for redact mode.
 
 ## Images and PDFs
 
@@ -121,6 +123,12 @@ Known values take priority. Numeric values accept common separators; known upper
 Unknown India rules include Aadhaar, PAN, IFSC, phone, UPI, passport, vehicle registration, and driving licence.
 Weak formats require nearby context. Email and selected API-token formats match without context.
 Credit-card patterns require context plus a Luhn checksum.
+Email skips `noreply@`, `git@` and `example.com/org/net` addresses; `(at)`/`[at]`/`%40` forms match as `email_obfuscated`.
+`connection_string` covers `scheme://user:pass@host`. `assigned_secret` covers `password|secret|api_key|token=value` (value only, not placeholders or env lookups).
+`us_ssn` needs an SSN keyword. `ip_address` matches public IPv4 only (no private, CGNAT, documentation, `.0`/`.255` or public DNS).
+Known-value placeholders are `{{vault:#hash}}`, so item names never reach the provider.
+
+Out of scope: prompt injection, IPv6, labels in a sibling JSON field, and audio content.
 
 `detector.redact()` is a text helper, not a production redaction policy.
 It does not handle every encoding, streaming transformation, or placeholder collision.
