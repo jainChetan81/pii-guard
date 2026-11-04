@@ -52,7 +52,7 @@ export interface RedactResult {
 }
 
 export interface Detector {
-  scan: (text: string) => Finding[];
+  scan: (text: string, context?: string) => Finding[];
   redact: (text: string, replacement?: string) => RedactResult;
   placeholder: (f: Finding) => string;
   hash: (v: string) => string;
@@ -61,6 +61,10 @@ export interface Detector {
 
 export function createDetector({ known = [], salt = randomBytes(16), rules = RULES }: DetectorOptions = {}): Detector {
   const hash = (v: string) => createHmac("sha256", salt).update(v).digest("hex").slice(0, 12);
+  const scanCache = new Map<string, { findings: Finding[]; chars: number }>();
+  let cachedChars = 0;
+  const MAX_CACHE_CHARS = 32_000_000;
+  const MAX_CACHE_ENTRIES = 20_000;
 
   const byValue = new Map<string, KnownItem>();
   for (const k of known) {
@@ -73,8 +77,17 @@ export function createDetector({ known = [], salt = randomBytes(16), rules = RUL
     ? new RegExp(entries.map(([v, k], i) => `(?<k${i}>${knownPattern(v, k.category)})`).join("|"), "g")
     : null;
 
-  function scan(text: string): Finding[] {
+  function scan(text: string, context?: string): Finding[] {
     if (typeof text !== "string" || !text.length) return [];
+    const cacheKey = text.length >= 256 ? `${text.length}:${text}${context ?? ""}` : undefined;
+    if (cacheKey !== undefined) {
+      const cached = scanCache.get(cacheKey);
+      if (cached) {
+        scanCache.delete(cacheKey);
+        scanCache.set(cacheKey, cached);
+        return cached.findings.map(f => ({ ...f }));
+      }
+    }
     const out: Finding[] = [];
     if (knownRe) {
       for (const m of text.matchAll(knownRe)) {
@@ -95,12 +108,23 @@ export function createDetector({ known = [], salt = randomBytes(16), rules = RUL
         if (r.check && !r.check(v)) continue;
         if (r.keyword) {
           const near = text.slice(Math.max(0, m.index - KEYWORD_WINDOW), m.index + v.length + KEYWORD_WINDOW);
-          if (!r.keyword.test(near)) continue;
+          if (!r.keyword.test(near) && !(context && r.keyword.test(context))) continue;
         }
         out.push({ start: m.index, end: m.index + v.length, rule: r.id, kind: r.kind, hash: hash(v) });
       }
     }
-    return dedupe(out);
+    const findings = dedupe(out);
+    if (cacheKey !== undefined && cacheKey.length <= MAX_CACHE_CHARS) {
+      while (scanCache.size >= MAX_CACHE_ENTRIES || cachedChars + cacheKey.length > MAX_CACHE_CHARS) {
+        const oldest = scanCache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        cachedChars -= scanCache.get(oldest)!.chars;
+        scanCache.delete(oldest);
+      }
+      scanCache.set(cacheKey, { findings: findings.map(f => ({ ...f })), chars: cacheKey.length });
+      cachedChars += cacheKey.length;
+    }
+    return findings;
   }
 
   const placeholder = (f: Finding) => (f.rule === "known" ? `{{vault:#${f.hash.slice(0, 6)}}}` : `{{pii:${f.rule}#${f.hash.slice(0, 6)}}}`);
