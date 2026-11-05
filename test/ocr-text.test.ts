@@ -57,5 +57,7 @@ test("URL handling keeps unrelated emails and never builds credentials from sepa
   const rules = (t: string) => scanOcrText(t, d, "enhanced").map(f => f.rule).sort();
   expect(rules(`Contact ops@acme.io postgres://svc:${pw}@db.internal.net:5432/app`)).toEqual(["connection_string", "email"]);
   expect(rules("Visit https://docs.acme.io Contact: noreply@acme.io")).toEqual([]);
+  expect(rules(`postgres://svc:${pw}@db.internal.net Contact: ops@acme.io`)).toEqual(["connection_string", "email"]);
+  expect(rules(`postgres://svc:${pw}@db.internal.net:5432/app`)).toEqual(["connection_string"]);
   expect(rules(`DATABASE_URL=postgresql://svc_abcd:${pw.slice(0, 6)} ${pw.slice(6)}@pg-ab9c.internal.net:5432/app`)).toEqual(["connection_string"]);
 });

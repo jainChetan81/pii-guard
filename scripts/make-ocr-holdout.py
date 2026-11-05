@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-import json, random, string, html, subprocess
 """Unseen OCR set: different fonts, themes, sizes and seed than ocr-corpus. Never tune rules against it alone."""
+import json, random, string, html, subprocess
 import os, tempfile
 OUT=os.path.join(os.path.dirname(os.path.abspath(__file__)),"../test/fixtures/ocr-holdout")
 HTML=tempfile.mkdtemp()
+os.makedirs(OUT,exist_ok=True)
 random.seed(90210)
 A=string.ascii_letters+string.digits
 r=lambda n,a=A:"".join(random.choice(a) for _ in range(n))
@@ -47,5 +48,5 @@ for j,lines in enumerate(clean):
   open(f"{HTML}/{name}.html","w").write(f"<html><body style=\"margin:0;padding:18px;background:{bg};color:{fg};font:15px {random.choice(fonts)}\">"+"<br>".join(html.escape(l) for l in lines)+"</body></html>")
 for name in cases:
   w=random.choice([900,1100,1280])
-  subprocess.run(["google-chrome","--headless=new","--disable-gpu","--no-sandbox","--user-data-dir=/tmp/ocr-holdout/chrome","--hide-scrollbars",f"--window-size={w},200",f"--screenshot={OUT}/{name}",f"file://{HTML}/{name}.html"],capture_output=True)
+  subprocess.run(["google-chrome","--headless=new","--disable-gpu","--no-sandbox",f"--user-data-dir={HTML}/chrome","--hide-scrollbars",f"--window-size={w},200",f"--screenshot={OUT}/{name}",f"file://{HTML}/{name}.html"],capture_output=True,check=True)
 json.dump(cases,open(f"{OUT}/labels.json","w"),indent=1)

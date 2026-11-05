@@ -52,3 +52,9 @@ test.skipIf(!available)("scan --file honours --ocr-mode for images", () => {
   expect(run("basic")).not.toContain("vehicle_in");
   expect(run("enhanced")).toContain("vehicle_in");
 }, 30_000);
+
+test.skipIf(!available)("enhanced reads dark text on a transparent background", () => {
+  const data = readFileSync(join(import.meta.dir, "fixtures/ocr-transparent.png"));
+  const detector = createDetector({ salt: "alpha-test" });
+  expect(scanImage(data, detector, "enhanced").findings.map(f => f.rule)).toContain("email");
+});

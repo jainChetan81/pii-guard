@@ -104,7 +104,8 @@ One pipeline, on by default:
    - `O`/`0` and `I`/`l`/`|`/`1` swaps next to digits are fixed (`KAO1AB1234`);
    - glyph misreads are fixed: `@` for `0` (`ICIC@449627`), `¢` for `c`, `AlZa` for `AIza`.
 
-Without ffmpeg the pipeline still runs on the raw image (`doctor` reports this).
+Transparent images are flattened onto white first, so dark text on a transparent PNG stays readable.
+Without ffmpeg the pipeline still runs on the raw image; `doctor` then reports enhanced as unavailable.
 `--ocr-mode basic` (or `PII_GUARD_OCR_MODE=basic`, `createOcrWorker({ mode: "basic" })`)
 keeps the earlier behaviour, raw image and `--psm 11` with no repair, for comparison only.
 Cache entries are per mode. Nothing is downloaded at runtime.
@@ -118,10 +119,10 @@ Measured 2026-11-05 on a 4 vCPU VPS, Tesseract 5.5.0, ffmpeg 9.0.2, one image at
 
 | Set | Images | basic found | enhanced found | False (both) | p50 / p95 basic | p50 / p95 enhanced | CPU per image basic / enhanced |
 |---|---|---|---|---|---|---|---|
-| `ocr-corpus` (tuning set) | 24 | 27/37 (73%) | **37/37 (100%)** | 0 | 151 / 211 ms | 190 / 269 ms | 154 / 199 ms |
-| `ocr-holdout` (unseen fonts, themes, sizes) | 18 | 26/42 (62%) | **40/42 (95%)** | 0 | 177 / 333 ms | 293 / 620 ms | 195 / 308 ms |
+| `ocr-corpus` (tuning set) | 24 | 27/37 (73%) | **37/37 (100%)** | 0 | 157 / 217 ms | 213 / 290 ms | 167 / 226 ms |
+| `ocr-holdout` (unseen fonts, themes, sizes) | 18 | 26/42 (62%) | **40/42 (95%)** | 0 | 195 / 366 ms | 253 / 478 ms | 208 / 293 ms |
 
-Enhanced costs about 40-120 ms more per new image (ffmpeg plus a larger image for Tesseract).
+Enhanced costs about 55-110 ms more per new image (ffmpeg plus a larger image for Tesseract).
 It runs in the background worker, so requests never wait for it, and a repeated screenshot is
 a cache hit (no OCR). The worst event-loop gap stays at about 35 ms for a 20 MiB image.
 
@@ -140,7 +141,8 @@ Rejected after measurement:
   above already reflect it.
 - English OCR only. Handwriting, rotation, Indian scripts, faces, QR codes, and metadata are not read.
 - Two different pattern values of one rule on one line, one visible only after repair, count once.
-- An unrelated email after a database URL on the same line is dropped with the URL's `user@host`.
+- A line with a database URL and another email keeps both emails, so the URL's `user@host` can show as an extra email hit.
+- Repairs skip OCR lines over 1000 characters; the raw scan still covers them.
 - The fixtures are rendered screenshots, not real user images. Run `replay-images --labels` on a
   real folder before trusting these rates for a new source.
 - Treat image findings as warnings; do not block on them alone.

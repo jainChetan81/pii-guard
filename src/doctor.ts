@@ -8,7 +8,7 @@ export interface DoctorReport { tools: ToolStatus[]; languages: string[]; modes:
 
 const TOOLS: Array<[name: string, args: string[], neededFor: string, install: string]> = [
   ["tesseract", ["--version"], "all image OCR", "apt install tesseract-ocr tesseract-ocr-eng | brew install tesseract"],
-  ["ffmpeg", ["-hide_banner", "-version"], "enhanced mode (falls back to basic preprocessing without it)", "apt install ffmpeg | brew install ffmpeg"],
+  ["ffmpeg", ["-hide_banner", "-version"], "enhanced mode image cleanup (without it, enhanced reads the raw image and is reported unavailable)", "apt install ffmpeg | brew install ffmpeg"],
   ["pdfinfo", ["-v"], "PDF scans", "apt install poppler-utils | brew install poppler"],
   ["pdftotext", ["-v"], "PDF scans", "apt install poppler-utils | brew install poppler"],
   ["pdftoppm", ["-v"], "PDF scans", "apt install poppler-utils | brew install poppler"],

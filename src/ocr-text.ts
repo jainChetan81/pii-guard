@@ -18,7 +18,7 @@ export function foldOcrText(text: string): string {
 /** Removes spaces OCR inserts around URL and assignment punctuation: "postgres: //a@db. host". */
 const tighten = (line: string) => line.replace(/[ \t]*([.:/=])[ \t]*/g, "$1");
 /** Joins a token split by OCR word breaks, keeping the space after short words such as "Bearer". */
-const joinTokens = (line: string) => line.replace(/(?<=[A-Za-z0-9_.+/=-]{8,}) (?=[A-Za-z0-9_.+/=-])/g, "");
+const joinTokens = (line: string) => line.replace(/(?<=[A-Za-z0-9_.+/=-]{8}) (?=[A-Za-z0-9_.+/=-])/g, "");
 /** Joins one line into one token, for long secrets split by a false word break. */
 const despace = (line: string) => line.replace(/\s+/g, "");
 /** Glyphs OCR reads inside tokens: "@" for 0 before digits ("ICIC@449627"), "¢" for c. */
@@ -59,7 +59,9 @@ export function scanOcrText(text: string, detector: Detector, mode: OcrMode = "e
   // only keep distinctive token formats. PII keyword windows would also match across words.
   const joinable = (f: Finding) => f.kind === "secret" && f.rule !== "assigned_secret" && f.rule !== "connection_string";
   for (const [i, line] of lines.entries()) {
-    if (!line.trim()) continue;
+    // ponytail: repairs skip lines over 1000 chars, so a text-heavy image cannot stall the event loop.
+    // The raw and folded scans above still cover them. Raise the cap if long secret lines show up.
+    if (!line.trim() || line.length > 1000) continue;
     const fixed = glyphFix(line);
     const variants = new Set([tighten(line), digitFix(fixed), digitFix(tighten(fixed))]);
     variants.delete(line);
@@ -82,9 +84,9 @@ export function scanOcrText(text: string, detector: Detector, mode: OcrMode = "e
     }
   }
   // "user:pass@host.net" inside a database URL also reads as an email, even when OCR splits the
-  // password. Drop emails on a URL line only when no "@" comes before the URL scheme.
-  // ponytail: an unrelated address after the URL on the same line is dropped too; use spans if seen.
+  // password. Drop emails on a URL line only when no "@" is left once the URLs are removed.
+  // ponytail: a line with a URL and another address keeps the URL email too; fail closed, use spans if noisy.
   const urlLines = new Set(findings.filter(f => f.rule === "connection_string").map(f => lineFor.get(f)));
-  const onlyUrlAt = (i: number) => !lines[i].slice(0, Math.max(0, lines[i].search(/:\s*\/\//))).includes("@");
+  const onlyUrlAt = (i: number) => !tighten(lines[i]).replace(/[a-z][a-z0-9+.-]{1,20}:\/\/[^\n]*?@[\w.-]+\.[a-z]{2,}\S*/gi, " ").includes("@");
   return findings.filter(f => f.rule !== "email" || !urlLines.has(lineFor.get(f)) || !onlyUrlAt(lineFor.get(f)!));
 }

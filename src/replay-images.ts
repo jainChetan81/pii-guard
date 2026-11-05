@@ -36,7 +36,8 @@ export async function replayImages(opts: { folder: string; detector: Detector; l
       const remaining = [...result.findings];
       // Match specific hashes first, then rule-only labels.
       // Labels key by sha256 or by file name; reports never include either.
-      const expected = (opts.labels[hash] || opts.labels[entry.name] || []).map(l => typeof l === "string" ? { rule: l } : l).sort((a, b) => Number(!!b.hash) - Number(!!a.hash));
+      const own = (k: string) => Object.hasOwn(opts.labels!, k) ? opts.labels![k] : undefined;
+      const expected = (own(hash) || own(entry.name) || []).map(l => typeof l === "string" ? { rule: l } : l).sort((a, b) => Number(!!b.hash) - Number(!!a.hash));
       for (const label of expected) {
         const index = remaining.findIndex(hit => hit.rule === label.rule && (!label.hash || hit.hash === label.hash));
         if (index < 0) count(label.rule).fn++;

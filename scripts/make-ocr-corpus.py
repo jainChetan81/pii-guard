@@ -102,7 +102,9 @@ def main():
             if name.endswith(".jpg"):
                 subprocess.run([FFMPEG, "-v", "error", "-y", "-i", str(screenshot), "-q:v", "8", str(OUT / name)], check=True)
     (OUT / "labels.json").write_text(json.dumps(labels, indent=2) + "\n", encoding="utf-8")
-    assert len(labels) == 24 and sum((OUT / name).stat().st_size for name in labels) < 1_500_000
+    size = sum((OUT / name).stat().st_size for name in labels)
+    if len(labels) != 24 or size >= 1_500_000:
+        raise SystemExit(f"bad corpus: {len(labels)} images, {size} bytes")
 
 
 if __name__ == "__main__":

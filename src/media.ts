@@ -28,7 +28,7 @@ function command(name: string, args: string[], input?: Buffer): string | null {
 /** Tesseract arguments per mode. Enhanced reads uniform text blocks (psm 6), which keeps long tokens whole. */
 export const tesseractArgs = (mode: OcrMode = "enhanced") => ["stdin", "stdout", "-l", "eng", "--psm", mode === "enhanced" ? "6" : "11", "tsv"];
 /** Enhanced pre-pass: grayscale, plus 2x bicubic upscale for images up to 1 MP. Larger (Retina) screenshots read worse when upscaled. */
-export const FFMPEG_ARGS = ["-v", "error", "-nostdin", "-threads", "1", "-i", "pipe:0", "-vf", "scale='if(lte(iw*ih,1000000),iw*2,iw)':-1:flags=bicubic,format=gray", "-frames:v", "1", "-f", "image2pipe", "-c:v", "png", "pipe:1"];
+export const FFMPEG_ARGS = ["-v", "error", "-nostdin", "-threads", "1", "-i", "pipe:0", "-vf", "format=rgba,split[a][b];[a]drawbox=c=white:t=fill:replace=1[bg];[bg][b]overlay=format=rgb,scale='if(lte(iw*ih,1000000),iw*2,iw)':-1:flags=bicubic,format=gray", "-frames:v", "1", "-f", "image2pipe", "-c:v", "png", "pipe:1"];
 export const MAX_PREPROCESSED_BYTES = 64 * 1024 * 1024;
 
 /** Returns the upscaled PNG, or the input unchanged when ffmpeg is missing or fails. */
