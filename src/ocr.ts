@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { createDetector, type Finding } from "./detector.ts";
 import { isSupportedImage, parseTesseractTsv } from "./media.ts";
+import { createCaptureStore, startSweeper } from "./capture.ts";
 import type { CaptureStore, ImageInput, OcrOptions, OcrReason, OcrResult, OcrWorker, SafeHit } from "./ocr-contract.ts";
 
 const MAX_DECODED_BYTES = 20 * 1024 * 1024;
@@ -121,6 +122,9 @@ function dimensions(data: Buffer): { width: number; height: number } | undefined
   return undefined;
 }
 
+const SAFE_LABEL = /^[A-Za-z0-9_.\[\]\/:-]{1,200}$/;
+const label = (value: unknown, fallback: string) => typeof value === "string" && SAFE_LABEL.test(value) ? value : fallback;
+
 function safeHits(findings: Finding[]): SafeHit[] {
   return findings.map(({ rule, name, kind, hash }) => ({ rule, ...(name !== undefined && { name }), kind, hash }));
 }
@@ -132,7 +136,13 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1) throw new RangeError("OCR timeout must be positive");
 
   const detector = createDetector(options.detector);
-  const captureStore = options.capture ? deps.captureStore : undefined;
+  // Cache key includes a fingerprint of the detector config: findings never cross known lists, rules, or salts.
+  const generation = createHash("sha256").update(JSON.stringify(options.detector, (_k, v) =>
+    typeof v === "function" || v instanceof RegExp ? String(v) : v)).digest("hex").slice(0, 16);
+  const key = (sha: string) => `${generation}:${sha}`;
+  const captureStore = options.capture ? deps.captureStore || createCaptureStore(options.capture) : undefined;
+  const stopSweeper = options.capture && captureStore && !deps.captureStore ? startSweeper(captureStore, 60 * 60 * 1000) : undefined;
+  if (stopSweeper) void captureStore!.sweep();
   const queue: Work[] = [];
   const works = new Set<Work>();
   const inFlight = new Map<string, Work>();
@@ -184,7 +194,7 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
     works.delete(work);
     if (inFlight.get(work.sha) === work) inFlight.delete(work.sha);
     if (!closed) {
-      if (fields.status !== "failed") putCached(work.sha, fields);
+      if (fields.status !== "failed") putCached(key(work.sha), fields);
       for (const sub of work.subscribers) {
         complete(sub, resultFor(sub, fields, sub.resultCache ?? "miss", work.startedAt - sub.enqueuedAt));
       }
@@ -282,7 +292,7 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
   function preflight(sub: Subscriber): void {
     if (sub.completed || closed) return;
     try {
-      const encoded = sub.data.replace(/\s/g, "");
+      const encoded = /\s/.test(sub.data) ? sub.data.replace(/\s/g, "") : sub.data;
       if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
         complete(sub, skipped(sub, "invalid_base64"));
         return;
@@ -292,10 +302,6 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
         return;
       }
       const bytes = Buffer.from(encoded, "base64");
-      if (bytes.toString("base64") !== encoded) {
-        complete(sub, skipped(sub, "invalid_base64"));
-        return;
-      }
       if (!bytes.length) {
         complete(sub, skipped(sub, "invalid_base64"));
         return;
@@ -311,7 +317,7 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
       const sha = createHash("sha256").update(bytes).digest("hex");
       sub.sha = sha;
       capture(sha, bytes);
-      const cached = getCached(sha);
+      const cached = getCached(key(sha));
       if (cached) {
         complete(sub, resultFor(sub, cached, "hit", Date.now() - sub.enqueuedAt));
         return;
@@ -319,7 +325,7 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
       const size = dimensions(bytes);
       if (size && size.width * size.height > MAX_PIXELS) {
         const fields: CachedFields = { status: "skipped", reason: "pixel_limit", findings: [], chars: 0, ocrMs: 0 };
-        putCached(sha, fields);
+        putCached(key(sha), fields);
         complete(sub, resultFor(sub, fields, "miss", Date.now() - sub.enqueuedAt));
         return;
       }
@@ -330,11 +336,13 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
           return;
         }
         sub.resultCache = "coalesced";
+        sub.data = "";
         existing.subscribers.push(sub);
         releaseAdmission(sub);
         return;
       }
       sub.resultCache = "miss";
+      sub.data = "";
       const work: Work = { sha, bytes, subscribers: [sub], startedAt: 0 };
       works.add(work);
       inFlight.set(sha, work);
@@ -352,8 +360,8 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
     if (pendingImages >= MAX_PENDING_IMAGES || pendingEncodedBytes + encodedBytes > MAX_PENDING_ENCODED_BYTES) return false;
     const sub: Subscriber = {
       data,
-      source: typeof image?.source === "string" ? image.source : "-",
-      path: typeof image?.path === "string" ? image.path : "",
+      source: label(image?.source, "-"),
+      path: label(image?.path, "-"),
       done,
       enqueuedAt: Date.now(),
       encodedBytes,
@@ -373,8 +381,8 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
         const data = typeof image?.data === "string" ? image.data : "";
         const sub: Subscriber = {
           data,
-          source: typeof image?.source === "string" ? image.source : "-",
-          path: typeof image?.path === "string" ? image.path : "",
+          source: label(image?.source, "-"),
+          path: label(image?.path, "-"),
           done: resolve,
           enqueuedAt: Date.now(),
           encodedBytes: data.length,
@@ -390,6 +398,7 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
     if (closePromise) return closePromise;
     closePromise = new Promise(resolve => { resolveClose = resolve; });
     closed = true;
+    stopSweeper?.();
     for (const sub of [...submissions]) complete(sub, skipped(sub, "closed"));
     pendingImages = 0;
     pendingEncodedBytes = 0;

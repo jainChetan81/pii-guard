@@ -287,7 +287,7 @@ async function serve() {
   const token = process.env.PII_GUARD_TOKEN || undefined, host = o.host || '127.0.0.1', port = Number(o.port || 20130);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('Invalid --port');
   const server = createScanServer({ detector: { known: known?.items || [], ...(known ? { salt: known.salt } : {}) }, token });
-  await listen(server, host, port, token);
+  await listen(server, host, port);
   console.error(`pii-guard serving on http://${host}:${port}`);
   await new Promise(() => {});
 }

@@ -11,6 +11,8 @@ export function createCaptureStore(options: CaptureOptions & { onError?: (code: 
     chain = result;
     return result;
   };
+  // ponytail: path-based checks; a writer that can swap the capture dir between lstat and write can redirect it.
+  // The dir sits under a 0700 home folder, so only this user can. Move to openat/O_NOFOLLOW if that changes.
   async function directory() {
     try { await mkdir(options.dir, { mode: 0o700 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
     const stat = await lstat(options.dir);

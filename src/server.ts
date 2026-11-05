@@ -8,7 +8,8 @@ import { createOcrWorker } from "./ocr.ts";
 import type { ImageInput, OcrResult, OcrWorker } from "./ocr-contract.ts";
 
 const MAX_BODY = 32 * 1024 * 1024, MAX_IMAGE = 20 * 1024 * 1024, MAX_IMAGES = 8, DEADLINE_MS = 60_000;
-const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
+const LOOPBACK = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
+const tokens = new WeakMap<Server, string>();
 
 export interface ScanServerOptions { detector: DetectorOptions; token?: string; worker?: OcrWorker }
 
@@ -22,7 +23,7 @@ function read(req: IncomingMessage, limit: number): Promise<Buffer> {
     const chunks: Buffer[] = []; let size = 0;
     req.on("data", (c: Buffer) => {
       size += c.length;
-      if (size > limit) { reject(new HttpError(413, "too_large")); req.destroy(); return; }
+      if (size > limit) { chunks.length = 0; reject(new HttpError(413, "too_large")); return; } // drain, then answer 413
       chunks.push(c);
     });
     req.on("end", () => resolve(Buffer.concat(chunks)));
@@ -42,7 +43,7 @@ export function createScanServer(options: ScanServerOptions): Server {
   const server = createServer(async (req, res) => {
     const send = (status: number, body: unknown) => {
       if (res.headersSent) return;
-      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(body));
+      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...(status === 413 && { connection: "close" }) }).end(JSON.stringify(body));
     };
     try {
       if (!authorized(req, options.token)) throw new HttpError(401, "unauthorized");
@@ -76,11 +77,12 @@ export function createScanServer(options: ScanServerOptions): Server {
   server.headersTimeout = 10_000;
   server.maxConnections = 32;
   server.on("close", () => { if (!options.worker) void worker.close(); });
+  if (options.token) tokens.set(server, options.token);
   return server;
 }
 
-/** Refuses non-loopback binding without a token. */
-export function listen(server: Server, host: string, port: number, token?: string): Promise<void> {
-  if (!LOOPBACK.has(host) && !token) return Promise.reject(Error("Non-loopback binding requires PII_GUARD_TOKEN"));
+/** Refuses non-loopback binding unless the server itself enforces a token. */
+export function listen(server: Server, host: string, port: number): Promise<void> {
+  if (!LOOPBACK.has(host) && !tokens.get(server)) return Promise.reject(Error("Non-loopback binding requires PII_GUARD_TOKEN"));
   return new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, () => resolve()); });
 }

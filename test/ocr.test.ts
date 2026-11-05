@@ -247,3 +247,20 @@ test.skipIf(!hasOcr)("real tesseract scans the public fixture", async () => {
   expect(new Set(result.findings.map(hit => hit.name)).size).toBe(3);
   expect(JSON.stringify(result)).not.toContain("David Johnson");
 });
+
+test("cache never crosses detector generations and unsafe labels are replaced", async () => {
+  __resetOcrCacheForTests();
+  await withFake(printTsv, async () => {
+    const a = worker(), first = await a.scan(image(42));
+    await a.close();
+    const b = createOcrWorker({ detector: { salt: "other-salt", known: [] } });
+    const second = await b.scan({ ...image(42), source: "David Johnson said", path: "x".repeat(300) });
+    await b.close();
+    expect(first.cache).toBe("miss");
+    expect(first.findings).toHaveLength(1);
+    expect(second.cache).toBe("miss");
+    expect(second.findings).toHaveLength(0);
+    expect(second.source).toBe("-/ocr");
+    expect(second.path).toBe("-");
+  });
+});

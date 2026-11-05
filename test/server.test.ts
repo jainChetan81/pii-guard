@@ -29,6 +29,7 @@ afterAll(() => {
 test("rejects missing token and refuses public bind without one", async () => {
   expect((await fetch(`${base}/health`)).status).toBe(401);
   expect(listen(createScanServer({ detector: known }), "0.0.0.0", 0)).rejects.toThrow("PII_GUARD_TOKEN");
+  expect(listen(createScanServer({ detector: known, token: "" }), "0.0.0.0", 0)).rejects.toThrow("PII_GUARD_TOKEN");
 });
 
 test("POST /scan returns text and OCR hits as hashes only", async () => {
@@ -50,5 +51,6 @@ test("POST /scan/image maps errors to status codes", async () => {
   expect((await fetch(`${base}/scan/image`, { method: "POST", headers: auth, body: png })).status).toBe(200);
   expect((await fetch(`${base}/scan/image`, { method: "POST", headers: auth, body: "not an image" })).status).toBe(415);
   expect((await fetch(`${base}/scan`, { method: "POST", headers: auth, body: "{" })).status).toBe(400);
+  expect((await fetch(`${base}/scan/image`, { method: "POST", headers: auth, body: Buffer.alloc(21 * 1024 * 1024, 1) })).status).toBe(413);
   expect((await fetch(`${base}/nope`, { method: "POST", headers: auth })).status).toBe(404);
 });
