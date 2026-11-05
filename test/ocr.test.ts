@@ -62,7 +62,7 @@ test("cache crosses worker calls and results contain safe hits only", async () =
   });
 });
 
-test("capture stores decoded bytes for OCR misses and cache hits", async () => {
+test("capture stores decoded bytes once per unique image", async () => {
   __resetOcrCacheForTests();
   await withFake(printTsv, async () => {
     const puts: string[] = [];
@@ -72,8 +72,8 @@ test("capture stores decoded bytes for OCR misses and cache hits", async () => {
     await w.scan(image(18));
     await w.scan(image(18));
     await w.close();
-    expect(puts).toHaveLength(2);
-    expect(puts[0]).toBe(puts[1]);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
@@ -254,13 +254,45 @@ test("cache never crosses detector generations and unsafe labels are replaced", 
     const a = worker(), first = await a.scan(image(42));
     await a.close();
     const b = createOcrWorker({ detector: { salt: "other-salt", known: [] } });
-    const second = await b.scan({ ...image(42), source: "David Johnson said", path: "x".repeat(300) });
+    const second = await b.scan({ ...image(42), source: "Alice/9876543210", path: "messages[0].Alice" });
     await b.close();
+    const c = createOcrWorker({ detector: {} }), d = createOcrWorker({ detector: {} });
+    const third = await c.scan(image(43)), fourth = await d.scan(image(43));
+    await c.close(); await d.close();
     expect(first.cache).toBe("miss");
     expect(first.findings).toHaveLength(1);
     expect(second.cache).toBe("miss");
     expect(second.findings).toHaveLength(0);
     expect(second.source).toBe("-/ocr");
     expect(second.path).toBe("-");
+    expect(third.cache).toBe("miss");
+    expect(fourth.cache).toBe("miss"); // random salts never share
+  });
+});
+
+test("structural labels from scanBody pass through", async () => {
+  __resetOcrCacheForTests();
+  await withFake(printTsv, async () => {
+    const w = worker();
+    const r = await w.scan({ ...image(44), source: "user/image_url", path: "messages[3].content[1].image_url.url" });
+    await w.close();
+    expect(r.source).toBe("user/image_url/ocr");
+    expect(r.path).toBe("messages[3].content[1].image_url.url");
+  });
+});
+
+test("a large image decodes without holding the event loop", async () => {
+  __resetOcrCacheForTests();
+  await withFake(printTsv, async () => {
+    const big = Buffer.alloc(15 * 1024 * 1024, 7);
+    Buffer.from(imageData(45), "base64").copy(big);
+    const w = worker();
+    let worst = 0, last = performance.now();
+    const tick = setInterval(() => { const now = performance.now(); worst = Math.max(worst, now - last); last = now; }, 1);
+    const r = await w.scan({ ...image(45), data: big.toString("base64") });
+    clearInterval(tick);
+    await w.close();
+    expect(r.status).toBe("scanned");
+    expect(worst).toBeLessThan(100);
   });
 });

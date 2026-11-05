@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID, webcrypto } from "node:crypto";
 import { join } from "node:path";
-import { createDetector, type Finding } from "./detector.ts";
+import { createDetector, type DetectorOptions, type Finding } from "./detector.ts";
+import { RULES } from "./rules.ts";
 import { isSupportedImage, parseTesseractTsv } from "./media.ts";
 import { createCaptureStore, startSweeper } from "./capture.ts";
 import type { CaptureStore, ImageInput, OcrOptions, OcrReason, OcrResult, OcrWorker, SafeHit } from "./ocr-contract.ts";
@@ -122,8 +123,50 @@ function dimensions(data: Buffer): { width: number; height: number } | undefined
   return undefined;
 }
 
-const SAFE_LABEL = /^[A-Za-z0-9_.\[\]\/:-]{1,200}$/;
-const label = (value: unknown, fallback: string) => typeof value === "string" && SAFE_LABEL.test(value) ? value : fallback;
+// Labels must be the structural shapes scanBody produces, so a caller cannot smuggle request text into results.
+const ROLES = "-|user|assistant|system|developer|tool|model|function";
+const TYPES = "-|text|input_text|output_text|tool_result|tool_use|function_call|function_call_output|thinking|redacted_thinking|reasoning|image|input_image|image_url|document|input_file|file";
+const KEYS = "messages|input|contents|parts|content|text|output|role|type|source|image_url|data|inlineData|inline_data|file_data|fileData|url|model|arguments|tool_calls|function|name|\\[field:\\d+\\]";
+const SOURCE = new RegExp(`^(?:${ROLES})/(?:${TYPES})$`);
+const PATH = new RegExp(`^(?:\\[\\d+\\])*(?:(?:${KEYS})(?:\\[\\d+\\])*)?(?:\\.(?:${KEYS})(?:\\[\\d+\\])*)*$`);
+const label = (value: unknown, shape: RegExp) => typeof value === "string" && value.length <= 300 && shape.test(value) ? value : "-";
+
+/** Cache scope: same salt, known list, and built-in rules share results. Custom rules never share. */
+function cacheScope(options: DetectorOptions, hash: (v: string) => string): string {
+  if (options.rules && options.rules !== RULES) return randomUUID();
+  const known = (options.known || []).map(k => `${k.name}=${hash(k.value)}`).sort().join("\n");
+  return createHash("sha256").update(`${hash("pii-guard-cache-scope")}\n${known}`).digest("hex").slice(0, 16);
+}
+
+const DECODE_CHUNK = 1 << 20; // characters per event-loop turn
+const MAX_CAPTURE_PENDING_BYTES = 64 * 1024 * 1024;
+const turn = () => new Promise<void>(resolve => setImmediate(resolve));
+
+/** Decodes base64 in chunks so a 20 MiB image never holds the event loop for long. */
+async function decodeBase64(data: string): Promise<Buffer | "invalid_base64" | "oversize"> {
+  if (data.length > Math.ceil(MAX_DECODED_BYTES / 3) * 8) return "oversize";
+  const parts: Buffer[] = [];
+  let carry = "", size = 0, padded = false, total = 0;
+  for (let i = 0; i < data.length; i += DECODE_CHUNK) {
+    if (i) await turn();
+    let chunk = carry + data.slice(i, i + DECODE_CHUNK).replace(/\s/g, "");
+    if (!chunk) continue;
+    if (padded || !/^[A-Za-z0-9+/]*={0,2}$/.test(chunk)) return "invalid_base64";
+    padded = chunk.endsWith("=");
+    const last = i + DECODE_CHUNK >= data.length;
+    const keep = last ? 0 : chunk.length % 4;
+    carry = keep ? chunk.slice(-keep) : "";
+    chunk = keep ? chunk.slice(0, -keep) : chunk;
+    if (padded && keep) return "invalid_base64";
+    total += chunk.length;
+    const bytes = Buffer.from(chunk, "base64");
+    size += bytes.length;
+    if (size > MAX_DECODED_BYTES) return "oversize";
+    parts.push(bytes);
+  }
+  if (!total || total % 4 !== 0 || carry) return "invalid_base64";
+  return Buffer.concat(parts, size);
+}
 
 function safeHits(findings: Finding[]): SafeHit[] {
   return findings.map(({ rule, name, kind, hash }) => ({ rule, ...(name !== undefined && { name }), kind, hash }));
@@ -136,9 +179,7 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1) throw new RangeError("OCR timeout must be positive");
 
   const detector = createDetector(options.detector);
-  // Cache key includes a fingerprint of the detector config: findings never cross known lists, rules, or salts.
-  const generation = createHash("sha256").update(JSON.stringify(options.detector, (_k, v) =>
-    typeof v === "function" || v instanceof RegExp ? String(v) : v)).digest("hex").slice(0, 16);
+  const generation = cacheScope(options.detector, detector.hash);
   const key = (sha: string) => `${generation}:${sha}`;
   const captureStore = options.capture ? deps.captureStore || createCaptureStore(options.capture) : undefined;
   const stopSweeper = options.capture && captureStore && !deps.captureStore ? startSweeper(captureStore, 60 * 60 * 1000) : undefined;
@@ -184,9 +225,11 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
     try { sub.done(result); } catch { /* Caller callbacks cannot stop OCR work. */ }
   }
 
+  let capturePending = 0;
   function capture(sha: string, bytes: Buffer): void {
-    if (!captureStore) return;
-    void Promise.resolve().then(() => captureStore.put(sha, bytes)).catch(() => {});
+    if (!captureStore || capturePending + bytes.length > MAX_CAPTURE_PENDING_BYTES) return;
+    capturePending += bytes.length;
+    void Promise.resolve().then(() => captureStore.put(sha, bytes)).catch(() => {}).finally(() => { capturePending -= bytes.length; });
   }
 
   function finishWork(work: Work, fields: CachedFields): void {
@@ -289,34 +332,24 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
     }
   }
 
-  function preflight(sub: Subscriber): void {
+  async function preflight(sub: Subscriber): Promise<void> {
     if (sub.completed || closed) return;
     try {
-      const encoded = /\s/.test(sub.data) ? sub.data.replace(/\s/g, "") : sub.data;
-      if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
-        complete(sub, skipped(sub, "invalid_base64"));
-        return;
-      }
-      if (encoded.length > Math.ceil(MAX_DECODED_BYTES / 3) * 4 + 4) {
-        complete(sub, skipped(sub, "oversize"));
-        return;
-      }
-      const bytes = Buffer.from(encoded, "base64");
-      if (!bytes.length) {
-        complete(sub, skipped(sub, "invalid_base64"));
-        return;
-      }
-      if (bytes.length > MAX_DECODED_BYTES) {
-        complete(sub, skipped(sub, "oversize"));
+      const bytes = await decodeBase64(sub.data);
+      if (sub.completed || closed) return;
+      if (typeof bytes === "string") {
+        complete(sub, skipped(sub, bytes));
         return;
       }
       if (!isSupportedImage(bytes)) {
         complete(sub, skipped(sub, "unsupported"));
         return;
       }
-      const sha = createHash("sha256").update(bytes).digest("hex");
+      sub.data = "";
+      // WebCrypto digests off the main thread.
+      const sha = Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>)).toString("hex");
+      if (sub.completed || closed) return;
       sub.sha = sha;
-      capture(sha, bytes);
       const cached = getCached(key(sha));
       if (cached) {
         complete(sub, resultFor(sub, cached, "hit", Date.now() - sub.enqueuedAt));
@@ -336,13 +369,12 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
           return;
         }
         sub.resultCache = "coalesced";
-        sub.data = "";
         existing.subscribers.push(sub);
         releaseAdmission(sub);
         return;
       }
       sub.resultCache = "miss";
-      sub.data = "";
+      capture(sha, bytes);
       const work: Work = { sha, bytes, subscribers: [sub], startedAt: 0 };
       works.add(work);
       inFlight.set(sha, work);
@@ -360,8 +392,8 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
     if (pendingImages >= MAX_PENDING_IMAGES || pendingEncodedBytes + encodedBytes > MAX_PENDING_ENCODED_BYTES) return false;
     const sub: Subscriber = {
       data,
-      source: label(image?.source, "-"),
-      path: label(image?.path, "-"),
+      source: label(image?.source, SOURCE),
+      path: label(image?.path, PATH),
       done,
       enqueuedAt: Date.now(),
       encodedBytes,
@@ -371,7 +403,7 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
     pendingImages++;
     pendingEncodedBytes += encodedBytes;
     submissions.add(sub);
-    setImmediate(() => preflight(sub));
+    setImmediate(() => { void preflight(sub); });
     return true;
   }
 
@@ -381,8 +413,8 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
         const data = typeof image?.data === "string" ? image.data : "";
         const sub: Subscriber = {
           data,
-          source: label(image?.source, "-"),
-          path: label(image?.path, "-"),
+          source: label(image?.source, SOURCE),
+          path: label(image?.path, PATH),
           done: resolve,
           enqueuedAt: Date.now(),
           encodedBytes: data.length,
