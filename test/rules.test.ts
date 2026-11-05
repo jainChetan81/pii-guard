@@ -2,6 +2,7 @@
 const FAKE = ["Xk82", "mPq0vL"].join("");
 import { expect, test } from "bun:test";
 import { createDetector } from "../src/detector.ts";
+import { RULES, GROUPS } from "../src/rules.ts";
 
 const d = createDetector();
 const rules = (s: string) => d.scan(s).map(f => f.rule);
@@ -65,4 +66,9 @@ test("reserved-domain emails and placeholder secrets are ignored", () => {
   ]) expect(rules(s)).toEqual([]);
   expect(rules(`client secret: GOCSPX-${FAKE}abcdEFGH`)).toEqual(["assigned_secret"]);
   expect(rules(`postgres://app:${FAKE}@db.prod.acme.io/x`)).toEqual(["connection_string"]);
+});
+
+test("every rule has a known group and a label", () => {
+  const ids = new Set(GROUPS.map(g => g.id));
+  for (const r of RULES) { expect(ids.has(r.group!)).toBe(true); expect(r.label?.length).toBeGreaterThan(0); }
 });

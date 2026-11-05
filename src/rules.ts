@@ -61,9 +61,23 @@ const assignedSecret = (v: string) => !/^(?:-?[$<[{\\*~/.]|process\.env|os\.envi
   && !/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:\(\))?$/.test(v)
   && (/\d/.test(v) && /[A-Za-z]/.test(v) || v.length >= 16);
 
+// UI groups. A group mode sets every rule in it; per-rule overrides still win.
+// "known" holds values from known.json, not a pattern rule.
+export const GROUPS = [
+  { id: "api_key", label: "API keys and secrets" },
+  { id: "known", label: "Vault values" },
+  { id: "gov_id", label: "Government IDs" },
+  { id: "financial", label: "Financial" },
+  { id: "contact", label: "Contact" },
+  { id: "network", label: "Network" },
+] as const;
+export type RuleGroup = (typeof GROUPS)[number]["id"];
+
 export interface Rule {
   id: string;
   kind: "pii" | "secret";
+  group?: RuleGroup; // UI only; built-in rules all set it
+  label?: string;
   re: RegExp;
   keyword: RegExp | null;
   check?: (v: string) => boolean;
@@ -72,39 +86,39 @@ export interface Rule {
 // keyword: regex that must appear within KEYWORD_WINDOW chars before or after.
 // null keyword = format is distinctive enough on its own.
 export const RULES: Rule[] = [
-  { id: "email", kind: "pii", re: /(?<![\w.+-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.[A-Za-z]{2,63}\b/g, check: v => !EMAIL_IGNORE.test(v), keyword: null },
+  { id: "email", kind: "pii", group: "contact", label: "Email", re: /(?<![\w.+-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.[A-Za-z]{2,63}\b/g, check: v => !EMAIL_IGNORE.test(v), keyword: null },
   // "name (at) host dot com", "name [at] host [dot] com", "name%40host.com"
-  { id: "email_obfuscated", kind: "pii", re: /(?<![\w.+-])[A-Za-z0-9._+-]{1,64}(?:\s*[([{]\s*at\s*[)\]}]\s*|%40)[A-Za-z0-9-]+(?:(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z0-9-]+)*(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z]{2,63}\b/gi, keyword: null },
-  { id: "us_ssn", kind: "pii", re: /(?<![\w-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\w-])/g, keyword: /\bssn\b|social security/i },
-  { id: "ip_address", kind: "pii", re: IPV4, check: publicIp, keyword: null },
-  { id: "ip_private", kind: "pii", re: IPV4, check: privateIp, keyword: null },
-  { id: "credit_card", kind: "pii", re: /(?<![\w-])\d(?:[ -]?\d){12,18}(?![\w-])/g, check: luhn, keyword: /card|visa|mastercard|amex/i },
+  { id: "email_obfuscated", kind: "pii", group: "contact", label: "Obfuscated email", re: /(?<![\w.+-])[A-Za-z0-9._+-]{1,64}(?:\s*[([{]\s*at\s*[)\]}]\s*|%40)[A-Za-z0-9-]+(?:(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z0-9-]+)*(?:\.|\s*[([{]\s*dot\s*[)\]}]\s*|\s+dot\s+)[A-Za-z]{2,63}\b/gi, keyword: null },
+  { id: "us_ssn", kind: "pii", group: "gov_id", label: "US SSN", re: /(?<![\w-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\w-])/g, keyword: /\bssn\b|social security/i },
+  { id: "ip_address", kind: "pii", group: "network", label: "Public IP", re: IPV4, check: publicIp, keyword: null },
+  { id: "ip_private", kind: "pii", group: "network", label: "Private IP", re: IPV4, check: privateIp, keyword: null },
+  { id: "credit_card", kind: "pii", group: "financial", label: "Credit card", re: /(?<![\w-])\d(?:[ -]?\d){12,18}(?![\w-])/g, check: luhn, keyword: /card|visa|mastercard|amex/i },
   // India
-  { id: "vehicle_in", kind: "pii", re: /\b(?:AP|AR|AS|BR|CG|CH|DD|DL|DN|GA|GJ|HP|HR|JH|JK|KA|KL|LA|LD|MH|ML|MN|MP|MZ|NL|OD|OR|PB|PY|RJ|SK|TN|TR|TS|TG|UK|UP|UT|WB)[ -]?\d{1,2}[ -]?[A-Z]{1,3}[ -]?\d{1,4}\b|\b\d{2}[ -]?BH[ -]?\d{4}[ -]?[A-Z]{1,2}\b/g, keyword: /reg(?:istration|n)?\b|vehicle|number plate|motorcycle|bike/i },
-  { id: "driving_license_in", kind: "pii", re: /\b[A-Z]{2}[ -]?\d{2}[ -]?(?:19|20)\d{2}[ -]?\d{7}\b/g, keyword: /licen[cs]e|driving|\bdl\b/i },
-  { id: "aadhaar", kind: "pii", re: /(?<![\w-])[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?![\w-])/g,
+  { id: "vehicle_in", kind: "pii", group: "gov_id", label: "Vehicle number", re: /\b(?:AP|AR|AS|BR|CG|CH|DD|DL|DN|GA|GJ|HP|HR|JH|JK|KA|KL|LA|LD|MH|ML|MN|MP|MZ|NL|OD|OR|PB|PY|RJ|SK|TN|TR|TS|TG|UK|UP|UT|WB)[ -]?\d{1,2}[ -]?[A-Z]{1,3}[ -]?\d{1,4}\b|\b\d{2}[ -]?BH[ -]?\d{4}[ -]?[A-Z]{1,2}\b/g, keyword: /reg(?:istration|n)?\b|vehicle|number plate|motorcycle|bike/i },
+  { id: "driving_license_in", kind: "pii", group: "gov_id", label: "Driving licence", re: /\b[A-Z]{2}[ -]?\d{2}[ -]?(?:19|20)\d{2}[ -]?\d{7}\b/g, keyword: /licen[cs]e|driving|\bdl\b/i },
+  { id: "aadhaar", kind: "pii", group: "gov_id", label: "Aadhaar", re: /(?<![\w-])[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?![\w-])/g,
     check: (v: string) => verhoeff(digitsOnly(v)), keyword: /aadhaa?r|uidai|\buid\b|आधार/i },
-  { id: "pan", kind: "pii", re: /\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b/g,
+  { id: "pan", kind: "pii", group: "gov_id", label: "PAN", re: /\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b/g,
     keyword: /\bpan\b|permanent account|income ?tax|\bitr\b/i },
-  { id: "ifsc", kind: "pii", re: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g, keyword: /ifsc|bank|branch|neft|imps|rtgs/i },
-  { id: "in_phone", kind: "pii", re: /(?<![\w.+-])(?:\+91[ -]?)?[6-9]\d{4}[ -]?\d{5}(?![\w.-])/g,
+  { id: "ifsc", kind: "pii", group: "financial", label: "IFSC", re: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g, keyword: /ifsc|bank|branch|neft|imps|rtgs/i },
+  { id: "in_phone", kind: "pii", group: "contact", label: "Phone (IN)", re: /(?<![\w.+-])(?:\+91[ -]?)?[6-9]\d{4}[ -]?\d{5}(?![\w.-])/g,
     keyword: /phone|mobile|whatsapp|\bcall\b|contact|\btel\b|\+91|\bmob\b/i },
-  { id: "upi", kind: "pii", re: /(?<![\w.-])[\w.-]{2,64}@(?:ok(?:axis|hdfcbank|icici|sbi)|ybl|paytm|upi|ibl|axl|apl)\b/gi, keyword: null },
-  { id: "passport_in", kind: "pii", re: /\b[A-PR-WY][1-9]\d{6}\b/g, keyword: /passport/i },
+  { id: "upi", kind: "pii", group: "financial", label: "UPI ID", re: /(?<![\w.-])[\w.-]{2,64}@(?:ok(?:axis|hdfcbank|icici|sbi)|ybl|paytm|upi|ibl|axl|apl)\b/gi, keyword: null },
+  { id: "passport_in", kind: "pii", group: "gov_id", label: "Passport", re: /\b[A-PR-WY][1-9]\d{6}\b/g, keyword: /passport/i },
   // Tokens (gitleaks-derived)
-  { id: "anthropic_key", kind: "secret", re: /\bsk-ant-[A-Za-z0-9_-]{20,}/g, keyword: null },
-  { id: "openrouter_key", kind: "secret", re: /\bsk-or-v1-[a-f0-9]{32,}/g, keyword: null },
-  { id: "openai_key", kind: "secret", re: /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}/g, keyword: null },
-  { id: "github_token", kind: "secret", re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{60,}/g, keyword: null },
-  { id: "aws_access_key", kind: "secret", re: /\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b/g, keyword: null },
-  { id: "slack_token", kind: "secret", re: /\bxox[abpors]-[A-Za-z0-9-]{10,}/g, keyword: null },
-  { id: "google_api_key", kind: "secret", re: /\bAIza[0-9A-Za-z_-]{35}\b/g, keyword: null },
-  { id: "stripe_key", kind: "secret", re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}/g, keyword: null },
-  { id: "jwt", kind: "secret", re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, keyword: null },
-  { id: "connection_string", kind: "secret", re: /\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]+:[^\s@/'"]+@[^\s/?#'"`]+/gi, check: v => !/:\/\/[^:]*:(?:pass(?:word)?|secret|\*+|x+)@/i.test(v) && !PLACEHOLDER.test(v.replace(/^[^:]+:\/\//, "")), keyword: null },
+  { id: "anthropic_key", kind: "secret", group: "api_key", label: "Anthropic key", re: /\bsk-ant-[A-Za-z0-9_-]{20,}/g, keyword: null },
+  { id: "openrouter_key", kind: "secret", group: "api_key", label: "OpenRouter key", re: /\bsk-or-v1-[a-f0-9]{32,}/g, keyword: null },
+  { id: "openai_key", kind: "secret", group: "api_key", label: "OpenAI key", re: /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}/g, keyword: null },
+  { id: "github_token", kind: "secret", group: "api_key", label: "GitHub token", re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{60,}/g, keyword: null },
+  { id: "aws_access_key", kind: "secret", group: "api_key", label: "AWS access key", re: /\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b/g, keyword: null },
+  { id: "slack_token", kind: "secret", group: "api_key", label: "Slack token", re: /\bxox[abpors]-[A-Za-z0-9-]{10,}/g, keyword: null },
+  { id: "google_api_key", kind: "secret", group: "api_key", label: "Google API key", re: /\bAIza[0-9A-Za-z_-]{35}\b/g, keyword: null },
+  { id: "stripe_key", kind: "secret", group: "api_key", label: "Stripe key", re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}/g, keyword: null },
+  { id: "jwt", kind: "secret", group: "api_key", label: "JWT", re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, keyword: null },
+  { id: "connection_string", kind: "secret", group: "api_key", label: "Connection string", re: /\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]+:[^\s@/'"]+@[^\s/?#'"`]+/gi, check: v => !/:\/\/[^:]*:(?:pass(?:word)?|secret|\*+|x+)@/i.test(v) && !PLACEHOLDER.test(v.replace(/^[^:]+:\/\//, "")), keyword: null },
   // Value only, so redaction keeps the key name readable.
-  { id: "assigned_secret", kind: "secret", re: /(?<=(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|client_secret|api[_-]?key|token|access[_-]?token|auth[_-]?token)["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"'`&,;()\\]{8,}/gi, check: assignedSecret, keyword: null },
-  { id: "private_key", kind: "secret", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, keyword: null },
+  { id: "assigned_secret", kind: "secret", group: "api_key", label: "Assigned secret", re: /(?<=(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|client_secret|api[_-]?key|token|access[_-]?token|auth[_-]?token)["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"'`&,;()\\]{8,}/gi, check: assignedSecret, keyword: null },
+  { id: "private_key", kind: "secret", group: "api_key", label: "Private key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, keyword: null },
 ];
 
 export const KEYWORD_WINDOW = 48;
