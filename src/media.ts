@@ -23,16 +23,14 @@ function command(name: string, args: string[], input?: Buffer): string | null {
   return r.error || r.status !== 0 ? null : r.stdout;
 }
 
-function imageFormat(data: Buffer): boolean {
-  return data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
-    (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) ||
-    (data.toString("ascii", 0, 4) === "RIFF" && data.toString("ascii", 8, 12) === "WEBP");
+export function isSupportedImage(data: Uint8Array): boolean {
+  const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+    (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
+    (bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP");
 }
 
-export function scanImage(data: Buffer, detector: Detector): MediaScan {
-  if (!data.length || data.length > MAX_BYTES || !imageFormat(data)) return { status: "unsupported", findings: [], chars: 0, pages: 0 };
-  const tsv = command("tesseract", ["stdin", "stdout", "-l", "eng", "--psm", "11", "tsv"], data);
-  if (tsv === null) return { status: "failed", findings: [], chars: 0, pages: 0 };
+export function parseTesseractTsv(tsv: string, detector: Detector): MediaScan {
   const words = tsv.split("\n").slice(1).map(line => line.split("\t")).filter(row => row.length >= 12 && row[0] === "5" && row[11].trim());
   let previous = "", text = "", confidence = 0;
   for (const row of words) {
@@ -45,6 +43,13 @@ export function scanImage(data: Buffer, detector: Detector): MediaScan {
   // ponytail: mean confidence below 60 flags review; use labeled documents to calibrate before enforcement.
   const status = !text ? "empty" : meanConfidence < 60 ? "partial" : "scanned";
   return { status, findings: detector.scan(text), chars: text.length, pages: 1, meanConfidence };
+}
+
+export function scanImage(data: Buffer, detector: Detector): MediaScan {
+  if (!data.length || data.length > MAX_BYTES || !isSupportedImage(data)) return { status: "unsupported", findings: [], chars: 0, pages: 0 };
+  const tsv = command("tesseract", ["stdin", "stdout", "-l", "eng", "--psm", "11", "tsv"], data);
+  if (tsv === null) return { status: "failed", findings: [], chars: 0, pages: 0 };
+  return parseTesseractTsv(tsv, detector);
 }
 
 export function scanFile(path: string, detector: Detector): MediaScan {
