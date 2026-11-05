@@ -94,7 +94,21 @@ HTTP image URLs and provider file IDs are counted but never fetched.
 PDF attachments inside request bodies remain unscanned; use `scan --file` for local PDFs.
 
 Limits: 20 MiB per file, 10 PDF pages, 8 inline images, 20 MiB decoded per request, 20 seconds per subprocess.
-The OCR path is synchronous and intended for offline checks. Do not enable it on a live router yet.
+`scanImage`, `scanFile`, and `scanBodyWithOcr` are synchronous and meant for offline checks.
+Live gateways use `createOcrWorker()`: `enqueue()` returns at once, OCR runs in a bounded
+background queue (one Tesseract process, 32 pending images, 20 s timeout), and a 24-hour
+SHA-256 cache reads a repeated screenshot once. Results hold hashes and counts, never text.
+
+## Use it anywhere
+
+```sh
+bun bin/pii-guard.ts serve --port 20130            # loopback; set PII_GUARD_TOKEN to require a bearer token
+curl -s localhost:20130/scan -d '{"body": {...}}'  # text + OCR findings as hashes
+curl -s localhost:20130/scan/image --data-binary @shot.png
+bun bin/pii-guard.ts replay-images --folder ~/shots [--labels labels.json]
+```
+
+A non-loopback `--host` requires `PII_GUARD_TOKEN`. The server never fetches URLs or reads paths.
 These limits are not a sandbox for hostile image decoders or decompression bombs.
 
 Results distinguish `scanned`, `partial`, `empty`, `unsupported`, and `failed`.

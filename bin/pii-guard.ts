@@ -9,11 +9,16 @@ import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 import { createDetector } from '../src/detector.ts';
 import { scanBody, type BodyScanResult } from '../src/body.ts';
 import { scanFile, scanBodyWithOcr } from '../src/media.ts';
+import { replayImages, formatReport } from '../src/replay-images.ts';
+import { createScanServer, listen } from '../src/server.ts';
 
 const opts: ParseArgsOptionsConfig = { 'bw-json': { type: 'string' }, 'from-text': { type: 'string', multiple: true }, out: { type: 'string' }, folder: { type: 'string' }, collection: { type: 'string' }, org: { type: 'string' }, known: { type: 'string' }, source: { type: 'string' }, stdin: { type: 'boolean' }, label: { type: 'string' }, home: { type: 'string' }, since: { type: 'string' }, context: { type: 'boolean' }, events: { type: 'string' } };
 const args = process.argv.slice(2);
 opts.file = { type: 'string', multiple: true };
 opts.ocr = { type: 'boolean' };
+opts.labels = { type: 'string' };
+opts.host = { type: 'string' };
+opts.port = { type: 'string' };
 const command = args.shift();
 const knownCommand = command === 'known' ? args.shift() : undefined;
 if (command === 'known' && !['export', 'check'].includes(knownCommand || '')) fail('Expected known export|check');
@@ -270,6 +275,22 @@ function inspectFiles() {
     if (r.status !== 'scanned') process.exitCode = 2;
   }
 }
+async function replayImageFolder() {
+  if (!o.folder) throw Error('replay-images requires --folder');
+  const known = readKnown(knownPath, !o.known);
+  const detector = createDetector({ known: known?.items || [], ...(known ? { salt: known.salt } : {}) });
+  const labels = o.labels ? JSON.parse(readFileSync(o.labels, 'utf8')) : undefined;
+  console.log(formatReport(await replayImages({ folder: resolve(o.folder), detector, labels })));
+}
+async function serve() {
+  const known = readKnown(knownPath, !o.known);
+  const token = process.env.PII_GUARD_TOKEN || undefined, host = o.host || '127.0.0.1', port = Number(o.port || 20130);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('Invalid --port');
+  const server = createScanServer({ detector: { known: known?.items || [], ...(known ? { salt: known.salt } : {}) }, token });
+  await listen(server, host, port, token);
+  console.error(`pii-guard serving on http://${host}:${port}`);
+  await new Promise(() => {});
+}
 try {
-  if (command === 'known') { if (knownCommand === 'check') checkKnown(); else exportKnown(); } else if (command === 'replay') await replay(); else if (command === 'report') await report(); else if (command === 'scan') inspectFiles(); else fail('Usage: pii-guard known export|check, replay, report, scan');
+  if (command === 'replay-images') await replayImageFolder(); else if (command === 'serve') await serve(); else if (command === 'known') { if (knownCommand === 'check') checkKnown(); else exportKnown(); } else if (command === 'replay') await replay(); else if (command === 'report') await report(); else if (command === 'scan') inspectFiles(); else fail('Usage: pii-guard known export|check, replay, replay-images, report, scan, serve');
 } catch { fail('Command failed; check input files and options'); }
