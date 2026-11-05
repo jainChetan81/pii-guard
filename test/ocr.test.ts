@@ -263,6 +263,12 @@ test("cache never crosses detector generations and unsafe labels are replaced", 
     expect((await e.scan(image(49))).cache).toBe("miss");
     expect((await f.scan(image(49))).cache).toBe("miss"); // category changes matching
     await e.close(); await f.close();
+    // Names with separators must not let two lists serialize alike.
+    const g = createOcrWorker({ detector: { salt: "s", known: [{ name: "a\tid", value: "ALPHA1" }] } });
+    const h = createOcrWorker({ detector: { salt: "s", known: [{ name: "a", value: "ALPHA1", category: "id" }] } });
+    expect((await g.scan(image(50))).cache).toBe("miss");
+    expect((await h.scan(image(50))).cache).toBe("miss");
+    await g.close(); await h.close();
     const c = createOcrWorker({ detector: {} }), d = createOcrWorker({ detector: {} });
     const third = await c.scan(image(43)), fourth = await d.scan(image(43));
     await c.close(); await d.close();

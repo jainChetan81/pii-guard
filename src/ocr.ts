@@ -140,8 +140,8 @@ const label = (value: unknown, shape: RegExp) => {
 function cacheScope(options: DetectorOptions, hash: (v: string) => string): string {
   if (options.rules && options.rules !== RULES) return randomUUID();
   // Order and category change matching, so both are part of the scope.
-  const known = (options.known || []).map(k => `${k.name}\t${k.category || ""}\t${hash(k.value)}`).join("\n");
-  return createHash("sha256").update(`${hash("pii-guard-cache-scope")}\n${known}`).digest("hex").slice(0, 16);
+  const known = (options.known || []).map(k => [k.name, k.category ?? null, hash(k.value)]);
+  return createHash("sha256").update(JSON.stringify([hash("pii-guard-cache-scope"), known])).digest("hex").slice(0, 16);
 }
 
 const DECODE_CHUNK = 1 << 20; // characters per event-loop turn
