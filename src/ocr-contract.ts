@@ -1,8 +1,9 @@
 // Shared OCR contract. WP1 (worker), WP2 (capture/replay), WP3 (HTTP/CLI), WP4 (9Router) build against this.
 import type { DetectorOptions, Finding } from "./detector.ts";
 import type { ImageInput } from "./body.ts";
+import type { OcrMode } from "./ocr-text.ts";
 
-export type { ImageInput };
+export type { ImageInput, OcrMode };
 export type OcrStatus = "scanned" | "partial" | "empty" | "failed" | "skipped";
 export type OcrReason =
   | "queue_full" | "oversize" | "invalid_base64" | "unsupported"
@@ -36,6 +37,8 @@ export interface OcrOptions {
   timeoutMs?: number;
   /** Off unless set. */
   capture?: CaptureOptions;
+  /** "enhanced" (default): ffmpeg grayscale and 2x upscale, Tesseract psm 6, OCR text repair. "basic": Tesseract psm 11 on the raw image. */
+  mode?: OcrMode;
 }
 
 export interface OcrWorker {

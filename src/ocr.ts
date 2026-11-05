@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID, webcrypto } from "node:crypto";
-import { join } from "node:path";
 import { createDetector, type DetectorOptions, type Finding } from "./detector.ts";
 import { RULES } from "./rules.ts";
-import { isSupportedImage, parseTesseractTsv } from "./media.ts";
+import { OCR_MODES } from "./ocr-text.ts";
+import { FFMPEG_ARGS, MAX_PREPROCESSED_BYTES, isSupportedImage, ocrBin, parseTesseractTsv, tesseractArgs } from "./media.ts";
 import { createCaptureStore, startSweeper } from "./capture.ts";
 import type { CaptureStore, ImageInput, OcrOptions, OcrReason, OcrResult, OcrWorker, SafeHit } from "./ocr-contract.ts";
 
@@ -174,11 +174,13 @@ function safeHits(findings: Finding[]): SafeHit[] {
 export function createOcrWorker(options: OcrOptions, deps: { captureStore?: CaptureStore } = {}): OcrWorker {
   const concurrency = options.concurrency ?? 1;
   const timeoutMs = options.timeoutMs ?? 20_000;
+  const mode = options.mode ?? "enhanced";
+  if (!OCR_MODES.includes(mode)) throw new RangeError("OCR mode must be basic or enhanced");
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new RangeError("OCR concurrency must be a positive integer");
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1) throw new RangeError("OCR timeout must be positive");
 
   const detector = createDetector(options.detector);
-  const generation = cacheScope(options.detector, detector.hash);
+  const generation = `${mode}:${cacheScope(options.detector, detector.hash)}`;
   const key = (sha: string) => `${generation}:${sha}`;
   const captureStore = options.capture ? deps.captureStore || createCaptureStore(options.capture) : undefined;
   const stopSweeper = options.capture && captureStore && !deps.captureStore ? startSweeper(captureStore, 60 * 60 * 1000) : undefined;
@@ -245,89 +247,79 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
     pump();
   }
 
-  function start(work: Work): void {
+  type Run = { code: number | null; out: Buffer; reason?: OcrReason };
+  /** Runs one engine process under the shared work deadline. close() kills it through work.child. */
+  function run(work: Work, name: string, args: string[], input: Buffer, limit: number, deadline: number): Promise<Run> {
+    return new Promise(resolve => {
+      let child: ChildProcess;
+      try {
+        child = spawn(ocrBin(name), args, { env: { ...process.env, OMP_THREAD_LIMIT: "1" }, stdio: ["pipe", "pipe", "ignore"] });
+      } catch { resolve({ code: null, out: Buffer.alloc(0), reason: "engine_error" }); return; }
+      work.child = child;
+      let size = 0, reason: OcrReason | undefined;
+      const chunks: Buffer[] = [];
+      const fail = (r: OcrReason) => { reason ??= r; child.kill("SIGKILL"); };
+      const timer = setTimeout(() => fail("timeout"), Math.max(1, deadline - Date.now()));
+      child.stdout?.on("data", (chunk: Buffer | string) => {
+        if (reason) return;
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        if (size + bytes.length > limit) return fail("output_limit");
+        size += bytes.length;
+        chunks.push(bytes);
+      });
+      child.stdout?.on("error", () => fail("engine_error"));
+      child.stdin?.on("error", () => {});
+      child.on("error", () => { reason ??= "engine_error"; });
+      child.on("close", code => {
+        clearTimeout(timer);
+        work.child = undefined;
+        resolve({ code, out: Buffer.concat(chunks, size), ...(reason && { reason }) });
+      });
+      try { child.stdin?.end(input); } catch { fail("engine_error"); }
+    });
+  }
+
+  async function start(work: Work): Promise<void> {
     active++;
     work.startedAt = Date.now();
     for (const sub of work.subscribers) releaseAdmission(sub);
     work.reaped = new Promise(resolve => { work.resolveReaped = resolve; });
-    const bin = process.env.PII_GUARD_OCR_BIN_DIR ? join(process.env.PII_GUARD_OCR_BIN_DIR, "tesseract") : "tesseract";
-    let child: ChildProcess;
+    const deadline = work.startedAt + timeoutMs;
+    const end = (fields: CachedFields) => { finishWork(work, fields); work.resolveReaped?.(); };
+    const failed = (reason: OcrReason) => end({ status: "failed", reason, findings: [], chars: 0, ocrMs: Date.now() - work.startedAt });
+    const stopped = () => closed || work.forcedReason === "closed";
+    let input = work.bytes;
+    if (mode === "enhanced") {
+      // A missing or failing ffmpeg falls back to the original image; only timeout and close stop the work.
+      const pre = await run(work, "ffmpeg", FFMPEG_ARGS, work.bytes, MAX_PREPROCESSED_BYTES, deadline);
+      if (stopped()) return end({ status: "skipped", reason: "closed", findings: [], chars: 0, ocrMs: 0 });
+      if (pre.reason === "timeout") return failed("timeout");
+      if (!pre.reason && pre.code === 0 && isSupportedImage(pre.out)) input = pre.out;
+    }
+    const ocr = await run(work, "tesseract", tesseractArgs(mode), input, MAX_STDOUT_BYTES, deadline);
+    const ocrMs = Date.now() - work.startedAt;
+    if (stopped()) return end({ status: "skipped", reason: "closed", findings: [], chars: 0, ocrMs: 0 });
+    if (ocr.reason) return failed(ocr.reason);
+    if (ocr.code !== 0) return failed("engine_error");
     try {
-      child = spawn(bin, ["stdin", "stdout", "-l", "eng", "--psm", "11", "tsv"], {
-        env: { ...process.env, OMP_THREAD_LIMIT: "1" },
-        stdio: ["pipe", "pipe", "ignore"],
+      const parsed = parseTesseractTsv(ocr.out.toString("utf8"), detector, mode);
+      if (parsed.status === "failed" || parsed.status === "unsupported") throw Error("Unexpected parsed OCR status");
+      end({
+        status: parsed.status,
+        ...(parsed.status === "partial" && { reason: "low_confidence" as const }),
+        findings: safeHits(parsed.findings),
+        ...(parsed.meanConfidence !== undefined && { meanConfidence: parsed.meanConfidence }),
+        chars: parsed.chars,
+        ocrMs,
       });
-    } catch {
-      finishWork(work, { status: "failed", reason: "engine_error", findings: [], chars: 0, ocrMs: Date.now() - work.startedAt });
-      work.resolveReaped?.();
-      return;
-    }
-    work.child = child;
-    let outputBytes = 0;
-    const chunks: Buffer[] = [];
-    let failedReason: OcrReason | undefined;
-    const timer = setTimeout(() => {
-      if (!failedReason) failedReason = "timeout";
-      child.kill("SIGKILL");
-    }, timeoutMs);
-    child.stdout?.on("data", (chunk: Buffer | string) => {
-      if (failedReason) return;
-      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      if (outputBytes + bytes.length > MAX_STDOUT_BYTES) {
-        failedReason = "output_limit";
-        child.kill("SIGKILL");
-        return;
-      }
-      outputBytes += bytes.length;
-      chunks.push(bytes);
-    });
-    child.stdout?.on("error", () => {
-      if (!failedReason) failedReason = "engine_error";
-      child.kill("SIGKILL");
-    });
-    child.stdin?.on("error", () => {});
-    child.on("error", () => { if (!failedReason) failedReason = "engine_error"; });
-    child.on("close", code => {
-      clearTimeout(timer);
-      work.child = undefined;
-      const ocrMs = Date.now() - work.startedAt;
-      if (closed || work.forcedReason === "closed") {
-        finishWork(work, { status: "skipped", reason: "closed", findings: [], chars: 0, ocrMs: 0 });
-      } else if (failedReason) {
-        finishWork(work, { status: "failed", reason: failedReason, findings: [], chars: 0, ocrMs });
-      } else if (code !== 0) {
-        finishWork(work, { status: "failed", reason: "engine_error", findings: [], chars: 0, ocrMs });
-      } else {
-        try {
-          const parsed = parseTesseractTsv(Buffer.concat(chunks, outputBytes).toString("utf8"), detector);
-          if (parsed.status === "failed" || parsed.status === "unsupported") throw Error("Unexpected parsed OCR status");
-          const fields: CachedFields = {
-            status: parsed.status,
-            ...(parsed.status === "partial" && { reason: "low_confidence" as const }),
-            findings: safeHits(parsed.findings),
-            ...(parsed.meanConfidence !== undefined && { meanConfidence: parsed.meanConfidence }),
-            chars: parsed.chars,
-            ocrMs,
-          };
-          finishWork(work, fields);
-        } catch {
-          finishWork(work, { status: "failed", reason: "engine_error", findings: [], chars: 0, ocrMs });
-        }
-      }
-      work.resolveReaped?.();
-    });
-    try { child.stdin?.end(work.bytes); }
-    catch {
-      failedReason = "engine_error";
-      child.kill("SIGKILL");
-    }
+    } catch { failed("engine_error"); }
   }
 
   function pump(): void {
     if (closed) return;
     while (active < concurrency && queue.length) {
       const work = queue.shift()!;
-      if (works.has(work)) start(work);
+      if (works.has(work)) void start(work);
     }
   }
 

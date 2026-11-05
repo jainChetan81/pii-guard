@@ -316,3 +316,62 @@ test("a large image decodes without holding the event loop", async () => {
     expect(worst).toBeLessThan(100);
   });
 });
+
+test("enhanced worker uses supported preprocessed bytes", async () => {
+  __resetOcrCacheForTests();
+  await withFake('', async dir => {
+    const marker = join(dir, "marker");
+    writeFileSync(marker, Buffer.from(imageData(60), "base64"));
+    writeFileSync(join(dir, "ffmpeg"), `#!/bin/sh\ncat >/dev/null\ncat ${shellQuote(marker)}\n`, { mode: 0o700 });
+    writeFileSync(join(dir, "tesseract"), `#!/bin/sh\ncmp -s - ${shellQuote(marker)} || exit 1\nprintf '%s' ${shellQuote(tsv)}\n`, { mode: 0o700 });
+    const w = createOcrWorker({ detector: { salt: "worker-test-salt", known: [{ name: "sample.person", value: "David Johnson" }] }, mode: "enhanced" });
+    const result = await w.scan(image(61));
+    await w.close();
+    expect(result.status).toBe("scanned");
+    expect(result.findings).toHaveLength(1);
+  });
+});
+
+test.each(["missing", "invalid", "failed"])("enhanced worker falls back to raw bytes when ffmpeg is %s", async kind => {
+  __resetOcrCacheForTests();
+  await withFake('', async dir => {
+    const raw = join(dir, "raw");
+    writeFileSync(raw, Buffer.from(imageData(62), "base64"));
+    if (kind !== "missing") writeFileSync(join(dir, "ffmpeg"), `#!/bin/sh\ncat >/dev/null\n${kind === "invalid" ? "printf invalid" : "exit 1"}\n`, { mode: 0o700 });
+    writeFileSync(join(dir, "tesseract"), `#!/bin/sh\ncmp -s - ${shellQuote(raw)} || exit 1\nprintf '%s' ${shellQuote(tsv)}\n`, { mode: 0o700 });
+    const w = createOcrWorker({ detector: { salt: "worker-test-salt" }, mode: "enhanced" });
+    const result = await w.scan(image(62));
+    await w.close();
+    expect(result.status).toBe("scanned");
+  });
+});
+
+test("enhanced timeout kills and reaps ffmpeg", async () => {
+  __resetOcrCacheForTests();
+  await withFake(printTsv, async dir => {
+    const pidFile = join(dir, "pid");
+    writeFileSync(join(dir, "ffmpeg"), `#!/bin/sh\necho $$ > ${shellQuote(pidFile)}\nexec sleep 5\n`, { mode: 0o700 });
+    const w = createOcrWorker({ detector: { salt: "worker-test-salt" }, mode: "enhanced", timeoutMs: 200 });
+    const result = await w.scan(image(63));
+    await w.close();
+    expect(result).toMatchObject({ status: "failed", reason: "timeout" });
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+});
+
+test("worker rejects invalid OCR mode", () => {
+  expect(() => createOcrWorker({ detector: {}, mode: "bogus" as never })).toThrow(RangeError);
+});
+
+test("worker cache separates OCR modes", async () => {
+  __resetOcrCacheForTests();
+  await withFake(printTsv, async () => {
+    const opts = { detector: { salt: "worker-test-salt" } };
+    const basic = createOcrWorker({ ...opts, mode: "basic" });
+    const enhanced = createOcrWorker({ ...opts, mode: "enhanced" });
+    expect((await basic.scan(image(64))).cache).toBe("miss");
+    expect((await enhanced.scan(image(64))).cache).toBe("miss");
+    await basic.close(); await enhanced.close();
+  });
+});

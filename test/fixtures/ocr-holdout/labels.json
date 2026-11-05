@@ -1,0 +1,76 @@
+{
+ "h01.png": [
+  "openai_key",
+  "slack_token",
+  "jwt"
+ ],
+ "h02.png": [
+  "connection_string",
+  "openrouter_key",
+  "anthropic_key"
+ ],
+ "h03.png": [
+  "aws_access_key",
+  "upi",
+  "anthropic_key"
+ ],
+ "h04.png": [
+  "connection_string",
+  "aws_access_key",
+  "ifsc"
+ ],
+ "h05.png": [
+  "slack_token",
+  "jwt",
+  "credit_card"
+ ],
+ "h06.png": [
+  "openai_key",
+  "jwt",
+  "google_api_key"
+ ],
+ "h07.png": [
+  "ip_address",
+  "jwt",
+  "aws_access_key"
+ ],
+ "h08.png": [
+  "anthropic_key",
+  "in_phone",
+  "ifsc"
+ ],
+ "h09.png": [
+  "google_api_key",
+  "credit_card",
+  "us_ssn"
+ ],
+ "h10.png": [
+  "credit_card",
+  "pan",
+  "in_phone"
+ ],
+ "h11.png": [
+  "github_token",
+  "pan",
+  "connection_string"
+ ],
+ "h12.png": [
+  "google_api_key",
+  "jwt",
+  "email"
+ ],
+ "h13.png": [
+  "openai_key",
+  "us_ssn",
+  "slack_token"
+ ],
+ "h14.png": [
+  "anthropic_key",
+  "aws_access_key",
+  "us_ssn"
+ ],
+ "c01.png": [],
+ "c02.png": [],
+ "c03.png": [],
+ "c04.png": []
+}

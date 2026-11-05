@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, readdirSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, readdirSync, utimesSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -253,4 +253,17 @@ test('OCR replay reports incomplete file and opaque coverage with exit 2', () =>
   const report = readFileSync(out, 'utf8');
   expect(report).toContain('unscanned file/audio blocks: 1');
   expect(report).toContain('opaque signed/encrypted fields: 1');
+});
+
+test('OCR mode CLI validation and doctor availability', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pii-cli-doctor-'));
+  try {
+    writeFileSync(join(dir, 'tesseract'), '#!/bin/sh\nif [ "$1" = "--list-langs" ]; then printf "List of available languages (1):\\neng\\n"; else echo tesseract; fi\n', { mode: 0o700 });
+    const env = { ...process.env, PII_GUARD_OCR_BIN_DIR: dir };
+    expect(spawnSync('bun', [cli, 'replay-images', '--folder', dir, '--ocr-mode', 'bogus'], { env }).status).toBe(1);
+    expect(spawnSync('bun', [cli, 'doctor', '--ocr-mode', 'enhanced'], { env }).status).toBe(2);
+    expect(spawnSync('bun', [cli, 'doctor', '--ocr-mode', 'basic'], { env }).status).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
