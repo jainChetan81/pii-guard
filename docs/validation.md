@@ -128,6 +128,32 @@ No known-value list was loaded. Absence of a pattern match does not establish ab
 Temporary images and executable scripts were removed. No software or services were installed or changed.
 Vision remains a validated local option, not a production backend in this package.
 
+## Image capture and replay
+
+Capture is opt-in: set `PII_GUARD_CAPTURE_IMAGES=1`. Images are stored in
+`~/.9router/pii-guard/images/`, with a 2 GiB cap and a 14-day TTL.
+Before enabling capture, exclude this folder from backups. Add
+`--exclude=./pii-guard/images` to the 9Router snapshot in `/usr/local/sbin/vps-backup`,
+and verify that the resulting backup excludes the images folder.
+
+Run `pii-guard replay-images --folder PATH [--labels labels.json]`. Labels map each
+image's SHA-256 to expected rule occurrences. An optional `hash` matches a specific
+detector finding; use the same detector salt for labeling and replay.
+
+```json
+{
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef": [
+    { "rule": "email", "hash": "0123456789ab" },
+    { "rule": "pan" }
+  ]
+}
+```
+
+Each image without a label entry is treated as having no expected findings.
+Precision and recall are `null` when their denominator is zero. Without labels,
+accuracy is unknown. Child CPU time uses Linux `/proc/self/stat` child user and
+system ticks, including completed Tesseract processes.
+
 ## Remaining work
 
 1. Review and merge this follow-up PR after CI passes. PR #1 contains the initial observer, not these follow-up fixes.
