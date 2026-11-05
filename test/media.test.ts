@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { createDetector } from "../src/detector.ts";
-import { scanBodyWithOcr, scanFile, scanImage } from "../src/media.ts";
+import { ocrImage, scanBodyWithOcr, scanFile, scanImage } from "../src/media.ts";
 
 const binary = (name: string) => process.env.PII_GUARD_OCR_BIN_DIR ? join(process.env.PII_GUARD_OCR_BIN_DIR, name) : name;
 const hasOcr = spawnSync(binary("tesseract"), ["--version"]).status === 0;
@@ -96,4 +96,17 @@ test.skipIf(!hasOcr || !hasPdf)("PDF text and rasterized page both detect synthe
     expect(r.findings.filter(f => f.rule === "vehicle_in").length).toBeGreaterThanOrEqual(2);
     expect(JSON.stringify(r)).not.toContain("ABCPE1234F");
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test.skipIf(!hasOcr)("ocrImage returns text and matches for a test UI", async () => {
+  const r = await ocrImage(image, d);
+  expect(r.status).toBe("scanned");
+  expect(r.text).toContain("David Johnson");
+  const person = r.findings.find(f => f.name === "sample.person");
+  expect(person?.match).toBe("David Johnson");
+  expect(r.ocrMs).toBeGreaterThan(0);
+  expect((await ocrImage(Buffer.from("not an image"), d)).status).toBe("unsupported");
+  const basic = await ocrImage(image, d, "basic");
+  expect(basic.mode).toBe("basic");
+  expect(basic.findings.length).toBeGreaterThan(0);
 });
