@@ -55,7 +55,7 @@ test("cache crosses worker calls and results contain safe hits only", async () =
     expect(first.cache).toBe("miss");
     expect(second.cache).toBe("hit");
     expect(first.source).toBe("user/image/ocr");
-    expect(first.path).toBe("messages[0].content[0]");
+    expect(first.path).toBe("messages[*].content[*]");
     expect(first.findings).toEqual([{ rule: "known", name: "sample.person", kind: "known", hash: expect.any(String) }]);
     expect(JSON.stringify(first)).not.toContain("David Johnson");
     expect(first.sha256).toMatch(/^[0-9a-f]{64}$/);
@@ -255,7 +255,14 @@ test("cache never crosses detector generations and unsafe labels are replaced", 
     await a.close();
     const b = createOcrWorker({ detector: { salt: "other-salt", known: [] } });
     const second = await b.scan({ ...image(42), source: "Alice/9876543210", path: "messages[0].Alice" });
+    const indexed = await b.scan({ ...image(46), path: "messages[9876543210].content[1]" });
+    const spaced = await b.scan({ ...image(47), data: imageData(47).replace(/(.{7})/g, "$1\n") });
     await b.close();
+    const k = (category?: string) => createOcrWorker({ detector: { salt: "s", known: [{ name: "n", value: "AB12CD", ...(category && { category }) }] } });
+    const e = k(), f = k("id");
+    expect((await e.scan(image(49))).cache).toBe("miss");
+    expect((await f.scan(image(49))).cache).toBe("miss"); // category changes matching
+    await e.close(); await f.close();
     const c = createOcrWorker({ detector: {} }), d = createOcrWorker({ detector: {} });
     const third = await c.scan(image(43)), fourth = await d.scan(image(43));
     await c.close(); await d.close();
@@ -265,6 +272,8 @@ test("cache never crosses detector generations and unsafe labels are replaced", 
     expect(second.findings).toHaveLength(0);
     expect(second.source).toBe("-/ocr");
     expect(second.path).toBe("-");
+    expect(indexed.path).toBe("messages[*].content[*]");
+    expect(spaced.status).toBe("scanned");
     expect(third.cache).toBe("miss");
     expect(fourth.cache).toBe("miss"); // random salts never share
   });
@@ -277,7 +286,12 @@ test("structural labels from scanBody pass through", async () => {
     const r = await w.scan({ ...image(44), source: "user/image_url", path: "messages[3].content[1].image_url.url" });
     await w.close();
     expect(r.source).toBe("user/image_url/ocr");
-    expect(r.path).toBe("messages[3].content[1].image_url.url");
+    expect(r.path).toBe("messages[*].content[*].image_url.url");
+    for (const path of ["contents[0].parts[1].inlineData", "input[2].content[0].input_audio", "messages[0].content[1].file", "messages[0].content[0].[field:3]"]) {
+      const w2 = worker();
+      expect((await w2.scan({ ...image(48), path })).path).not.toBe("-");
+      await w2.close();
+    }
   });
 });
 

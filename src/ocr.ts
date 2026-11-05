@@ -126,15 +126,21 @@ function dimensions(data: Buffer): { width: number; height: number } | undefined
 // Labels must be the structural shapes scanBody produces, so a caller cannot smuggle request text into results.
 const ROLES = "-|user|assistant|system|developer|tool|model|function";
 const TYPES = "-|text|input_text|output_text|tool_result|tool_use|function_call|function_call_output|thinking|redacted_thinking|reasoning|image|input_image|image_url|document|input_file|file";
-const KEYS = "messages|input|contents|parts|content|text|output|role|type|source|image_url|data|inlineData|inline_data|file_data|fileData|url|model|arguments|tool_calls|function|name|\\[field:\\d+\\]";
+const KEYS = "messages|input|contents|parts|content|text|output|role|type|source|image_url|input_audio|file|data|inlineData|inline_data|file_data|fileData|url|model|arguments|tool_calls|function|name|\\[field:\\*\\]";
 const SOURCE = new RegExp(`^(?:${ROLES})/(?:${TYPES})$`);
-const PATH = new RegExp(`^(?:\\[\\d+\\])*(?:(?:${KEYS})(?:\\[\\d+\\])*)?(?:\\.(?:${KEYS})(?:\\[\\d+\\])*)*$`);
-const label = (value: unknown, shape: RegExp) => typeof value === "string" && value.length <= 300 && shape.test(value) ? value : "-";
+const PATH = new RegExp(`^(?:\\[\\*\\])*(?:(?:${KEYS})(?:\\[\\*\\])*)?(?:\\.(?:${KEYS})(?:\\[\\*\\])*)*$`);
+// Indexes become [*]: a label can never carry digits (a phone number as an index, say).
+const label = (value: unknown, shape: RegExp) => {
+  if (typeof value !== "string" || value.length > 300) return "-";
+  const normal = value.replace(/\[(?:field:)?\d+\]/g, m => m.startsWith("[field:") ? "[field:*]" : "[*]");
+  return shape.test(normal) ? normal : "-";
+};
 
 /** Cache scope: same salt, known list, and built-in rules share results. Custom rules never share. */
 function cacheScope(options: DetectorOptions, hash: (v: string) => string): string {
   if (options.rules && options.rules !== RULES) return randomUUID();
-  const known = (options.known || []).map(k => `${k.name}=${hash(k.value)}`).sort().join("\n");
+  // Order and category change matching, so both are part of the scope.
+  const known = (options.known || []).map(k => `${k.name}\t${k.category || ""}\t${hash(k.value)}`).join("\n");
   return createHash("sha256").update(`${hash("pii-guard-cache-scope")}\n${known}`).digest("hex").slice(0, 16);
 }
 
@@ -142,29 +148,22 @@ const DECODE_CHUNK = 1 << 20; // characters per event-loop turn
 const MAX_CAPTURE_PENDING_BYTES = 64 * 1024 * 1024;
 const turn = () => new Promise<void>(resolve => setImmediate(resolve));
 
-/** Decodes base64 in chunks so a 20 MiB image never holds the event loop for long. */
+/** Validates once, then decodes in 4-aligned slices so a 20 MiB image never holds the event loop for long. */
 async function decodeBase64(data: string): Promise<Buffer | "invalid_base64" | "oversize"> {
   if (data.length > Math.ceil(MAX_DECODED_BYTES / 3) * 8) return "oversize";
+  // ponytail: one regex pass over at most ~54 MB of chars (~10 ms); chunk it too if the loop budget tightens.
+  const encoded = /\s/.test(data) ? data.replace(/\s/g, "") : data;
+  if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) return "invalid_base64";
+  if (encoded.length / 4 * 3 > MAX_DECODED_BYTES + 2) return "oversize";
   const parts: Buffer[] = [];
-  let carry = "", size = 0, padded = false, total = 0;
-  for (let i = 0; i < data.length; i += DECODE_CHUNK) {
+  let size = 0;
+  for (let i = 0; i < encoded.length; i += DECODE_CHUNK) {
     if (i) await turn();
-    let chunk = carry + data.slice(i, i + DECODE_CHUNK).replace(/\s/g, "");
-    if (!chunk) continue;
-    if (padded || !/^[A-Za-z0-9+/]*={0,2}$/.test(chunk)) return "invalid_base64";
-    padded = chunk.endsWith("=");
-    const last = i + DECODE_CHUNK >= data.length;
-    const keep = last ? 0 : chunk.length % 4;
-    carry = keep ? chunk.slice(-keep) : "";
-    chunk = keep ? chunk.slice(0, -keep) : chunk;
-    if (padded && keep) return "invalid_base64";
-    total += chunk.length;
-    const bytes = Buffer.from(chunk, "base64");
+    const bytes = Buffer.from(encoded.slice(i, i + DECODE_CHUNK), "base64");
     size += bytes.length;
-    if (size > MAX_DECODED_BYTES) return "oversize";
     parts.push(bytes);
   }
-  if (!total || total % 4 !== 0 || carry) return "invalid_base64";
+  if (size > MAX_DECODED_BYTES) return "oversize";
   return Buffer.concat(parts, size);
 }
 

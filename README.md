@@ -98,6 +98,9 @@ Limits: 20 MiB per file, 10 PDF pages, 8 inline images, 20 MiB decoded per reque
 Live gateways use `createOcrWorker()`: `enqueue()` returns at once, OCR runs in a bounded
 background queue (one Tesseract process, 32 pending images, 20 s timeout), and a 24-hour
 SHA-256 cache reads a repeated screenshot once. Results hold hashes and counts, never text.
+Latency budget: decoding and hashing run in 1 MiB slices. The worst event-loop gap is about
+35 ms for a 20 MiB image (the cap) and a few ms for a typical 1 MB screenshot, small next to
+model latency. Labels are normalised (`messages[*].content[*]`), so indexes never carry data.
 
 ## Use it anywhere
 
