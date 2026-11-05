@@ -1,0 +1,82 @@
+{
+  "01_env_terminal.png": [
+    "anthropic_key",
+    "openai_key"
+  ],
+  "02_form.png": [
+    "email",
+    "in_phone",
+    "pan"
+  ],
+  "03_editor.png": [
+    "github_token",
+    "aws_access_key"
+  ],
+  "04_small.png": [
+    "aadhaar",
+    "credit_card"
+  ],
+  "05_low_contrast.png": [
+    "ifsc",
+    "upi"
+  ],
+  "06_blue.png": [
+    "us_ssn",
+    "passport_in"
+  ],
+  "07_heading.png": [
+    "vehicle_in",
+    "driving_license_in"
+  ],
+  "08_table.png": [
+    "ip_address",
+    "ip_private",
+    "email",
+    "in_phone"
+  ],
+  "09_chat.png": [
+    "email",
+    "upi"
+  ],
+  "10_url.png": [
+    "connection_string"
+  ],
+  "11_jpeg.jpg": [
+    "google_api_key",
+    "stripe_key"
+  ],
+  "12_retina.png": [
+    "slack_token",
+    "openrouter_key"
+  ],
+  "13_mobile.png": [
+    "pan",
+    "in_phone"
+  ],
+  "14_jwt.png": [
+    "jwt"
+  ],
+  "15_private_key.png": [
+    "private_key"
+  ],
+  "16_obfuscated.png": [
+    "email_obfuscated",
+    "ifsc"
+  ],
+  "17_assigned.png": [
+    "assigned_secret"
+  ],
+  "18_clean_code.png": [],
+  "19_clean_dashboard.png": [],
+  "20_clean_prose.png": [],
+  "21_clean_placeholder.png": [],
+  "22_clean_url.png": [],
+  "23_finance.png": [
+    "credit_card",
+    "ifsc"
+  ],
+  "24_ids.png": [
+    "passport_in",
+    "us_ssn"
+  ]
+}

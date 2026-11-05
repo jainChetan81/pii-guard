@@ -11,6 +11,8 @@ import { scanBody, type BodyScanResult } from '../src/body.ts';
 import { scanFile, scanBodyWithOcr } from '../src/media.ts';
 import { replayImages, formatReport } from '../src/replay-images.ts';
 import { createScanServer, listen } from '../src/server.ts';
+import { OCR_MODES, type OcrMode } from '../src/ocr-text.ts';
+import { doctor } from '../src/doctor.ts';
 
 const opts: ParseArgsOptionsConfig = { 'bw-json': { type: 'string' }, 'from-text': { type: 'string', multiple: true }, out: { type: 'string' }, folder: { type: 'string' }, collection: { type: 'string' }, org: { type: 'string' }, known: { type: 'string' }, source: { type: 'string' }, stdin: { type: 'boolean' }, label: { type: 'string' }, home: { type: 'string' }, since: { type: 'string' }, context: { type: 'boolean' }, events: { type: 'string' } };
 const args = process.argv.slice(2);
@@ -19,6 +21,7 @@ opts.ocr = { type: 'boolean' };
 opts.labels = { type: 'string' };
 opts.host = { type: 'string' };
 opts.port = { type: 'string' };
+opts['ocr-mode'] = { type: 'string' };
 const command = args.shift();
 const knownCommand = command === 'known' ? args.shift() : undefined;
 if (command === 'known' && !['export', 'check'].includes(knownCommand || '')) fail('Expected known export|check');
@@ -27,6 +30,9 @@ let o: Record<string, any> = {};
 try { o = parseArgs({ args, options: opts, strict: true }).values; } catch { fail('Invalid arguments'); }
 const home = resolve(o.home || homedir());
 const knownPath = o.known || join(home, '.config/pii-guard/known.json');
+// --ocr-mode wins over PII_GUARD_OCR_MODE; default enhanced. basic is the fallback for hosts without ffmpeg or for comparison.
+const ocrMode = (o['ocr-mode'] || process.env.PII_GUARD_OCR_MODE || 'enhanced') as OcrMode;
+if (!OCR_MODES.includes(ocrMode)) fail('Invalid --ocr-mode; expected basic or enhanced');
 let patternDetector = createDetector();
 let literalValues: string[] = [];
 // Labels are untrusted metadata. Mask detected values and markdown controls.
@@ -190,7 +196,7 @@ async function replay() {
   function scan(stats: any, body: any) {
     const scanner = o.context ? { scan(text: string) { const fs = detector.scan(text); for (const f of fs) (f as any).context = (text.slice(Math.max(0,f.start-14), f.start) + '[V]' + text.slice(f.end,f.end+8)).replace(/\S/gu, 'x'); return fs; } } : detector;
     let r: BodyScanResult & { ocr?: Record<string, number> };
-    try { r = (o.ocr ? scanBodyWithOcr : scanBody)(body, scanner as any); }
+    try { r = o.ocr ? scanBodyWithOcr(body, scanner as any, ocrMode) : scanBody(body, scanner as any); }
     catch { stats.scanErrors++; return; }
     stats.rows++; stats.chars += r.chars; stats.images += r.images; stats.bytes += r.imageBytes;
     stats.unscannedImages += r.unscanned.images; stats.unscannedFiles += r.unscanned.files; stats.opaque += r.unscanned.opaque;
@@ -269,7 +275,7 @@ function inspectFiles() {
   const detector = createDetector({ known: known?.items || [], ...(known ? { salt: known.salt } : {}) });
   patternDetector = detector;
   for (const [i, path] of o.file.entries()) {
-    const r = scanFile(path, detector), counts = new Map<string, number>();
+    const r = scanFile(path, detector, ocrMode), counts = new Map<string, number>();
     for (const f of r.findings) inc(counts, f.name || f.rule);
     console.log(`File ${i + 1}: ${r.status}; pages: ${r.pages}; chars: ${r.chars}; findings: ${r.findings.length}\nTypes: ${top(counts, counts.size)}`);
     if (r.status !== 'scanned') process.exitCode = 2;
@@ -280,17 +286,23 @@ async function replayImageFolder() {
   const known = readKnown(knownPath, !o.known);
   const detector = createDetector({ known: known?.items || [], ...(known ? { salt: known.salt } : {}) });
   const labels = o.labels ? JSON.parse(readFileSync(o.labels, 'utf8')) : undefined;
-  console.log(formatReport(await replayImages({ folder: resolve(o.folder), detector, labels })));
+  console.log(formatReport(await replayImages({ folder: resolve(o.folder), detector, labels, mode: ocrMode })));
 }
 async function serve() {
   const known = readKnown(knownPath, !o.known);
   const token = process.env.PII_GUARD_TOKEN || undefined, host = o.host || '127.0.0.1', port = Number(o.port || 20130);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('Invalid --port');
-  const server = createScanServer({ detector: { known: known?.items || [], ...(known ? { salt: known.salt } : {}) }, token });
+  const server = createScanServer({ detector: { known: known?.items || [], ...(known ? { salt: known.salt } : {}) }, token, mode: ocrMode });
   await listen(server, host, port);
-  console.error(`pii-guard serving on http://${host}:${port}`);
+  console.error(`pii-guard serving on http://${host}:${port} (OCR mode ${ocrMode})`);
   await new Promise(() => {});
 }
+function runDoctor() {
+  const r = doctor();
+  for (const t of r.tools) console.log(`${t.found ? 'ok     ' : 'missing'} ${t.name.padEnd(10)} ${t.found ? t.version || '' : `needed for ${t.neededFor}; install: ${t.install}`}`);
+  console.log(`languages: ${r.languages.join(', ') || 'none'}\nmodes: basic ${r.modes.basic ? 'ready' : 'unavailable'}; enhanced ${r.modes.enhanced ? 'ready' : 'unavailable'}; pdf ${r.pdf ? 'ready' : 'unavailable'}`);
+  if (!r.modes[ocrMode]) process.exitCode = 2;
+}
 try {
-  if (command === 'replay-images') await replayImageFolder(); else if (command === 'serve') await serve(); else if (command === 'known') { if (knownCommand === 'check') checkKnown(); else exportKnown(); } else if (command === 'replay') await replay(); else if (command === 'report') await report(); else if (command === 'scan') inspectFiles(); else fail('Usage: pii-guard known export|check, replay, replay-images, report, scan, serve');
+  if (command === 'doctor') runDoctor(); else if (command === 'replay-images') await replayImageFolder(); else if (command === 'serve') await serve(); else if (command === 'known') { if (knownCommand === 'check') checkKnown(); else exportKnown(); } else if (command === 'replay') await replay(); else if (command === 'report') await report(); else if (command === 'scan') inspectFiles(); else fail('Usage: pii-guard doctor, known export|check, replay, replay-images, report, scan, serve [--ocr-mode basic|enhanced]');
 } catch { fail('Command failed; check input files and options'); }

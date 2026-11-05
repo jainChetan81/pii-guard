@@ -108,7 +108,7 @@ export const RULES: Rule[] = [
   // Tokens (gitleaks-derived)
   { id: "anthropic_key", kind: "secret", group: "api_key", label: "Anthropic key", re: /\bsk-ant-[A-Za-z0-9_-]{20,}/g, keyword: null },
   { id: "openrouter_key", kind: "secret", group: "api_key", label: "OpenRouter key", re: /\bsk-or-v1-[a-f0-9]{32,}/g, keyword: null },
-  { id: "openai_key", kind: "secret", group: "api_key", label: "OpenAI key", re: /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}/g, keyword: null },
+  { id: "openai_key", kind: "secret", group: "api_key", label: "OpenAI key", re: /\bsk-(?!or-|ant-)(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}/g, keyword: null },
   { id: "github_token", kind: "secret", group: "api_key", label: "GitHub token", re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{60,}/g, keyword: null },
   { id: "aws_access_key", kind: "secret", group: "api_key", label: "AWS access key", re: /\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b/g, keyword: null },
   { id: "slack_token", kind: "secret", group: "api_key", label: "Slack token", re: /\bxox[abpors]-[A-Za-z0-9-]{10,}/g, keyword: null },

@@ -79,14 +79,71 @@ Install local OCR utilities. No image goes to a hosted OCR service.
 
 ```sh
 # Ubuntu; package installation requires administrator access.
-sudo apt-get install --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils
+sudo apt-get install --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils ffmpeg
+# macOS: brew install tesseract poppler ffmpeg
 
+bun bin/pii-guard.ts doctor                      # which tools exist; which modes are ready
 bun bin/pii-guard.ts scan --file image.png --file document.pdf
 bun bin/pii-guard.ts replay --since 7d --ocr
 ```
 
-`PII_GUARD_OCR_BIN_DIR` can select a directory containing those four executable tools:
-`tesseract`, `pdfinfo`, `pdftotext`, and `pdftoppm`.
+`PII_GUARD_OCR_BIN_DIR` can select a directory containing those executable tools:
+`tesseract`, `ffmpeg`, `pdfinfo`, `pdftotext`, and `pdftoppm`.
+
+### How images are read
+
+One pipeline, on by default:
+
+1. ffmpeg converts the image to grayscale and upscales it 2x (bicubic) when it is at most 1 MP.
+   Larger screenshots (Retina) keep their size; upscaling them made results worse.
+2. Tesseract reads it as text blocks (`--psm 6`), which keeps long tokens on one line.
+3. The text is scanned as read, then again after OCR repair. Repairs only add findings:
+   - unicode dashes and quotes fold to ASCII (`-——-` around `BEGIN RSA PRIVATE KEY`);
+   - spaces around `. : / =` are removed (`postgres: //db. internal`);
+   - tokens split by a false space or a line wrap are joined, for secret formats only;
+   - `O`/`0` and `I`/`l`/`|`/`1` swaps next to digits are fixed (`KAO1AB1234`);
+   - glyph misreads are fixed: `@` for `0` (`ICIC@449627`), `¢` for `c`, `AlZa` for `AIza`.
+
+Without ffmpeg the pipeline still runs on the raw image (`doctor` reports this).
+`--ocr-mode basic` (or `PII_GUARD_OCR_MODE=basic`, `createOcrWorker({ mode: "basic" })`)
+keeps the earlier behaviour, raw image and `--psm 11` with no repair, for comparison only.
+Cache entries are per mode. Nothing is downloaded at runtime.
+
+### Measured accuracy and speed
+
+Fake values only (`test/fixtures`, regenerate with `scripts/make-ocr-*.py`). An earlier 8-image
+ad hoc set scored 11/19 basic and 19/19 enhanced. A value counts as found when its expected rule fires. "False" counts hits on clean images or wrong rules; an extra
+`assigned_secret` on a `KEY=value` line is the same secret under a second rule and is not counted.
+Measured 2026-11-05 on a 4 vCPU VPS, Tesseract 5.5.0, ffmpeg 9.0.2, one image at a time.
+
+| Set | Images | basic found | enhanced found | False (both) | p50 / p95 basic | p50 / p95 enhanced | CPU per image basic / enhanced |
+|---|---|---|---|---|---|---|---|
+| `ocr-corpus` (tuning set) | 24 | 27/37 (73%) | **37/37 (100%)** | 0 | 151 / 211 ms | 190 / 269 ms | 154 / 199 ms |
+| `ocr-holdout` (unseen fonts, themes, sizes) | 18 | 26/42 (62%) | **40/42 (95%)** | 0 | 177 / 333 ms | 293 / 620 ms | 195 / 308 ms |
+
+Enhanced costs about 40-120 ms more per new image (ffmpeg plus a larger image for Tesseract).
+It runs in the background worker, so requests never wait for it, and a repeated screenshot is
+a cache hit (no OCR). The worst event-loop gap stays at about 35 ms for a 20 MiB image.
+
+Rejected after measurement:
+
+- `tessdata_best` English model: about 500 ms per image and no more accurate. Stock `eng` stays.
+- Upscaling images above 1 MP: Retina screenshots lost 2 of 19 hits.
+- Running both `--psm 6` and `--psm 11`: twice the time, no extra hits.
+- `--psm 11` with the same preprocessing and repair: 35/37 on the tuning set versus 37/37 with `--psm 6`.
+
+### Known issues
+
+- Badly garbled long random tokens still miss: on the holdout set, 1 JWT and 1 Google key whose
+  OCR text had several wrong characters. No safe repair recovers them.
+- Low-contrast, tiny (11 px), and JPEG text read worse; these sets include them, so the numbers
+  above already reflect it.
+- English OCR only. Handwriting, rotation, Indian scripts, faces, QR codes, and metadata are not read.
+- Two different pattern values of one rule on one line, one visible only after repair, count once.
+- An unrelated email after a database URL on the same line is dropped with the URL's `user@host`.
+- The fixtures are rendered screenshots, not real user images. Run `replay-images --labels` on a
+  real folder before trusting these rates for a new source.
+- Treat image findings as warnings; do not block on them alone.
 
 PNG, JPEG, and WebP use Tesseract English OCR. PDFs scan their text layer and rendered pages.
 Image envelopes cover Anthropic, OpenAI Chat/Responses, and Gemini inline images.

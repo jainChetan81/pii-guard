@@ -5,13 +5,13 @@ import { timingSafeEqual } from "node:crypto";
 import { scanBody } from "./body.ts";
 import { createDetector, type DetectorOptions } from "./detector.ts";
 import { createOcrWorker } from "./ocr.ts";
-import type { ImageInput, OcrResult, OcrWorker } from "./ocr-contract.ts";
+import type { ImageInput, OcrMode, OcrResult, OcrWorker } from "./ocr-contract.ts";
 
 const MAX_BODY = 32 * 1024 * 1024, MAX_IMAGE = 20 * 1024 * 1024, MAX_IMAGES = 8, DEADLINE_MS = 60_000;
 const LOOPBACK = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
 const tokens = new WeakMap<Server, string>();
 
-export interface ScanServerOptions { detector: DetectorOptions; token?: string; worker?: OcrWorker }
+export interface ScanServerOptions { detector: DetectorOptions; token?: string; worker?: OcrWorker; mode?: OcrMode }
 
 class HttpError extends Error {
   status: number; code: string;
@@ -39,7 +39,7 @@ function authorized(req: IncomingMessage, token?: string): boolean {
 
 export function createScanServer(options: ScanServerOptions): Server {
   const detector = createDetector(options.detector);
-  const worker = options.worker || createOcrWorker({ detector: options.detector });
+  const worker = options.worker || createOcrWorker({ detector: options.detector, mode: options.mode });
   const server = createServer(async (req, res) => {
     const send = (status: number, body: unknown) => {
       if (res.headersSent) return;
