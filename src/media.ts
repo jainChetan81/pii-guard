@@ -1,5 +1,5 @@
 // Offline observation only. OCR text stays inside this process.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,7 +44,7 @@ export function isSupportedImage(data: Uint8Array): boolean {
     (bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP");
 }
 
-export function parseTesseractTsv(tsv: string, detector: Detector, mode: OcrMode = "enhanced"): MediaScan {
+function readTsv(tsv: string) {
   const words = tsv.split("\n").slice(1).map(line => line.split("\t")).filter(row => row.length >= 12 && row[0] === "5" && row[11].trim());
   let previous = "", text = "", confidence = 0;
   for (const row of words) {
@@ -55,8 +55,55 @@ export function parseTesseractTsv(tsv: string, detector: Detector, mode: OcrMode
   }
   const meanConfidence = words.length ? Math.round(confidence / words.length) : 0;
   // ponytail: mean confidence below 60 flags review; use labeled documents to calibrate before enforcement.
-  const status = !text ? "empty" : meanConfidence < 60 ? "partial" : "scanned";
+  const status: MediaScan["status"] = !text ? "empty" : meanConfidence < 60 ? "partial" : "scanned";
+  return { text, meanConfidence, status };
+}
+
+export function parseTesseractTsv(tsv: string, detector: Detector, mode: OcrMode = "enhanced"): MediaScan {
+  const { text, meanConfidence, status } = readTsv(tsv);
   return { status, findings: scanOcrText(text, detector, mode), chars: text.length, pages: 1, meanConfidence };
+}
+
+function run(name: string, args: string[], input: Buffer, maxBytes: number): Promise<Buffer | null> {
+  return new Promise(done => {
+    let child;
+    try { child = spawn(ocrBin(name), args, { env: { ...process.env, OMP_THREAD_LIMIT: "1" } }); } catch { return done(null); }
+    const chunks: Buffer[] = []; let size = 0, ok = true;
+    const timer = setTimeout(() => { ok = false; child.kill("SIGKILL"); }, 20_000);
+    child.stdout.on("data", (c: Buffer) => { size += c.length; if (size > maxBytes) { ok = false; child.kill("SIGKILL"); } else chunks.push(c); });
+    child.stdin.on("error", () => {});
+    child.on("error", () => { ok = false; });
+    child.on("close", code => { clearTimeout(timer); done(ok && code === 0 ? Buffer.concat(chunks) : null); });
+    child.stdin.end(input);
+  });
+}
+
+export interface ImagePreview {
+  status: MediaScan["status"];
+  mode: OcrMode;
+  /** Raw OCR text. Only for an explicit, local test of one image; never log or cache it. */
+  text: string;
+  /** `match` is set when the offsets slice the value from `text`; repaired hits have no match. */
+  findings: Array<Finding & { match?: string }>;
+  chars: number;
+  meanConfidence?: number;
+  ocrMs: number;
+}
+
+/** Async OCR of one image that also returns the text, for a scanner test UI. Does not block the event loop. */
+export async function ocrImage(data: Buffer, detector: Detector, mode: OcrMode = "enhanced"): Promise<ImagePreview> {
+  const start = performance.now(), ms = () => Math.round(performance.now() - start);
+  if (!data.length || data.length > MAX_BYTES || !isSupportedImage(data)) return { status: "unsupported", mode, text: "", findings: [], chars: 0, ocrMs: 0 };
+  let input = data;
+  if (mode === "enhanced") { const pre = await run("ffmpeg", FFMPEG_ARGS, data, MAX_PREPROCESSED_BYTES); if (pre?.length && isSupportedImage(pre)) input = pre; }
+  const tsv = await run("tesseract", tesseractArgs(mode), input, 4 * 1024 * 1024);
+  if (tsv === null) return { status: "failed", mode, text: "", findings: [], chars: 0, ocrMs: ms() };
+  const { text, meanConfidence, status } = readTsv(tsv.toString("utf8"));
+  const findings = scanOcrText(text, detector, mode).map(f => {
+    const slice = text.slice(f.start, f.end);
+    return detector.scan(slice).some(g => g.hash === f.hash && g.rule === f.rule) ? { ...f, match: slice } : f;
+  });
+  return { status, mode, text, findings, chars: text.length, meanConfidence, ocrMs: ms() };
 }
 
 export function scanImage(data: Buffer, detector: Detector, mode: OcrMode = "enhanced"): MediaScan {
