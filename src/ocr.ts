@@ -8,7 +8,9 @@ import { createCaptureStore, startSweeper } from "./capture.ts";
 import type { CaptureStore, ImageInput, OcrOptions, OcrReason, OcrResult, OcrWorker, SafeHit } from "./ocr-contract.ts";
 
 const MAX_DECODED_BYTES = 20 * 1024 * 1024;
-const MAX_PENDING_IMAGES = 32;
+// Admission bounds memory before decode; cache hits and coalesced images never reach the OCR queue.
+const MAX_ADMITTED_IMAGES = 256;
+const MAX_QUEUED_IMAGES = 32;
 const MAX_PENDING_ENCODED_BYTES = 32 * 1024 * 1024;
 const MAX_PIXELS = 25_000_000;
 const MAX_STDOUT_BYTES = 4 * 1024 * 1024;
@@ -364,6 +366,10 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
         releaseAdmission(sub);
         return;
       }
+      if (queue.length >= MAX_QUEUED_IMAGES) {
+        complete(sub, skipped(sub, "queue_full"));
+        return;
+      }
       sub.resultCache = "miss";
       capture(sha, bytes);
       const work: Work = { sha, bytes, subscribers: [sub], startedAt: 0 };
@@ -380,7 +386,7 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
     if (closed) return false;
     const data = typeof image?.data === "string" ? image.data : "";
     const encodedBytes = data.length;
-    if (pendingImages >= MAX_PENDING_IMAGES || pendingEncodedBytes + encodedBytes > MAX_PENDING_ENCODED_BYTES) return false;
+    if (pendingImages >= MAX_ADMITTED_IMAGES || pendingEncodedBytes + encodedBytes > MAX_PENDING_ENCODED_BYTES) return false;
     const sub: Subscriber = {
       data,
       source: label(image?.source, SOURCE),
