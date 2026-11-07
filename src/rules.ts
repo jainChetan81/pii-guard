@@ -100,7 +100,7 @@ export const RULES: Rule[] = [
   { id: "aadhaar", kind: "pii", group: "gov_id", label: "Aadhaar", re: /(?<![\w-])[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?![\w-])/g,
     check: (v: string) => verhoeff(digitsOnly(v)), keyword: /aadhaa?r|uidai|\buid\b|आधार/i },
   // Format alone: the 4th-letter holder code keeps noise low (18 distinct shapes in 30 days of agent logs).
-  { id: "pan", kind: "pii", group: "gov_id", label: "PAN", re: /\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b/g, keyword: null },
+  { id: "pan", kind: "pii", group: "gov_id", label: "PAN", re: /\b(?:[A-Z]{3}[ABCFGHJLPT][A-Z] ?\d{4} ?[A-Z]|[a-z]{3}[abcfghjlpt][a-z]\d{4}[a-z])\b/g, keyword: null },
   { id: "ifsc", kind: "pii", group: "financial", label: "IFSC", re: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g, keyword: /ifsc|bank|branch|neft|imps|rtgs/i },
   { id: "in_phone", kind: "pii", group: "contact", label: "Phone (IN)", re: /(?<![\w.+-])(?:\+91[ -]?)?[6-9]\d{4}[ -]?\d{5}(?![\w.-])/g,
     keyword: /phone|mobile|whatsapp|\bcall\b|contact|\btel\b|\+91|\bmob\b/i },
@@ -119,7 +119,7 @@ export const RULES: Rule[] = [
   { id: "connection_string", kind: "secret", group: "api_key", label: "Connection string", re: /\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@'"]+:[^\s@/'"]+@[^\s/?#'"`]+/gi, check: v => !/:\/\/[^:]*:(?:pass(?:word)?|secret|\*+|x+)@/i.test(v) && !PLACEHOLDER.test(v.replace(/^[^:]+:\/\//, "")), keyword: null },
   // Value only, so redaction keeps the key name readable.
   { id: "assigned_secret", kind: "secret", group: "api_key", label: "Assigned secret", re: /(?<=(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|client_secret|api[_-]?key|token|access[_-]?token|auth[_-]?token)["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"'`&,;()\\]{8,}/gi, check: assignedSecret, keyword: null },
-  { id: "private_key", kind: "secret", group: "api_key", label: "Private key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, keyword: null },
+  { id: "private_key", kind: "secret", group: "api_key", label: "Private key", re: /-----BEGIN ([A-Z ]*PRIVATE KEY)-----[\s\S]*?(?:-----END \1-----|(?![\s\S]))/g, keyword: null },
 ];
 
 export const KEYWORD_WINDOW = 48;
