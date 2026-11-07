@@ -1,7 +1,7 @@
 // Reports which local OCR tools exist, so a host can tell what it must install. Nothing is downloaded.
 import { spawnSync } from "node:child_process";
 import { ocrBin } from "./media.ts";
-import type { OcrMode } from "./ocr-text.ts";
+import type { OcrMode } from "./text.ts";
 
 export interface ToolStatus { name: string; found: boolean; version?: string; neededFor: string; install: string }
 export interface DoctorReport { tools: ToolStatus[]; languages: string[]; modes: Record<OcrMode, boolean>; pdf: boolean }
@@ -25,7 +25,7 @@ export function doctor(): DoctorReport {
   const tools = TOOLS.map(([name, args, neededFor, install]) => ({ name, ...probe(name, args), neededFor, install }));
   const langs = spawnSync(ocrBin("tesseract"), ["--list-langs"], { encoding: "utf8", timeout: 5000 });
   const languages = langs.error ? [] : `${langs.stdout}`.split("\n").slice(1).map(l => l.trim()).filter(Boolean);
-  const has = (n: string) => tools.find(t => t.name === n)!.found;
+  const has = (n: string) => tools.some(t => t.name === n && t.found);
   const basic = has("tesseract") && languages.includes("eng");
   return { tools, languages, modes: { basic, enhanced: basic && has("ffmpeg") }, pdf: basic && has("pdfinfo") && has("pdftotext") && has("pdftoppm") };
 }

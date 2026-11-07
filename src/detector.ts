@@ -8,7 +8,7 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Digit-only values (phones, card numbers) may appear with spaces or dashes,
 // and phones with a +91 / 0 prefix. Match the bare digits with optional separators.
-function knownPattern(value: string, category?: string): string {
+function knownPattern(value: string, category?: KnownCategory): string {
   if (category === "id" && /^[A-Z0-9 -]{6,30}$/.test(value)) {
     // Digit-only IDs keep digit boundaries so they never match inside a longer number.
     if (/^[\d -]+$/.test(value)) return `(?<!\\d)(?:${esc(value)}|${value.replace(/[ -]/g, "").split("").join("[ \\t-]*")})(?!\\d)`;
@@ -28,10 +28,13 @@ function knownPattern(value: string, category?: string): string {
   return esc(value);
 }
 
+export const KNOWN_CATEGORIES = ["secret", "id", "contact"] as const;
+export type KnownCategory = (typeof KNOWN_CATEGORIES)[number];
+
 export interface KnownItem {
   name: string;
   value: string;
-  category?: string;
+  category?: KnownCategory;
 }
 
 export interface Finding {
@@ -99,7 +102,7 @@ export function createDetector({ known = [], salt = randomBytes(16), rules = RUL
         if (!key) continue;
         const i = +key.slice(1);
         // A formatted alias must not steal the identity of an exact configured value.
-        const { value, name } = byValue.get(m[0]) ?? entries[i][1];
+        const { value, name } = byValue.get(m[0]) ?? entries[i]![1]; // SAFETY: group k<i> exists only for entries[i]
         out.push({ start: m.index, end: m.index + m[0].length, rule: "known", kind: "known", name, hash: hash(value) });
       }
     }

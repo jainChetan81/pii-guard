@@ -4,8 +4,8 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { scanBody } from "./body.ts";
 import { createDetector, type DetectorOptions } from "./detector.ts";
-import { createOcrWorker } from "./ocr.ts";
-import type { ImageInput, OcrMode, OcrResult, OcrWorker } from "./ocr-contract.ts";
+import { createOcrWorker } from "./ocr/worker.ts";
+import type { ImageInput, OcrMode, OcrResult, OcrWorker } from "./ocr/contract.ts";
 
 const MAX_BODY = 32 * 1024 * 1024, MAX_IMAGE = 20 * 1024 * 1024, MAX_IMAGES = 8, DEADLINE_MS = 60_000;
 const LOOPBACK = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
@@ -59,7 +59,7 @@ export function createScanServer(options: ScanServerOptions): Server {
       }
       if (req.url === "/scan") {
         let body: unknown;
-        try { body = (JSON.parse((await read(req, MAX_BODY)).toString("utf8")) as { body?: unknown })?.body; } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(400, "invalid_json"); }
+        try { const parsed: unknown = JSON.parse((await read(req, MAX_BODY)).toString("utf8")); body = parsed && typeof parsed === "object" && "body" in parsed ? parsed.body : undefined; } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(400, "invalid_json"); }
         if (body === undefined) throw new HttpError(400, "missing_body");
         const images: ImageInput[] = [];
         const text = scanBody(body, detector, image => images.push(image));

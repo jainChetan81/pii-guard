@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { doctor } from "../src/doctor.ts";
+import { doctor } from "../../src/ocr/doctor.ts";
 
 test("doctor reports unavailable enhanced and PDF tools", () => {
   const dir = mkdtempSync(join(tmpdir(), "pii-doctor-"));

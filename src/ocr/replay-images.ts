@@ -3,9 +3,9 @@ import { spawnSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Detector } from "./detector.ts";
+import type { Detector } from "../detector.ts";
 import { isSupportedImage, scanImage } from "./media.ts";
-import type { OcrMode } from "./ocr-text.ts";
+import type { OcrMode } from "./text.ts";
 
 type Counts = { tp: number; fp: number; fn: number; precision: number | null; recall: number | null };
 export interface ReplayReport {
@@ -17,7 +17,7 @@ export interface ReplayReport {
 export async function replayImages(opts: { folder: string; detector: Detector; labels?: Record<string, Array<string | { rule: string; hash?: string }>>; mode?: OcrMode }): Promise<ReplayReport> {
   const ticks = Number(spawnSync("getconf", ["CLK_TCK"], { encoding: "utf8" }).stdout);
   if (!Number.isFinite(ticks) || ticks <= 0) throw Error("Cannot determine CPU clock ticks");
-  const childCpu = () => { const stat = readFileSync("/proc/self/stat", "utf8").split(") ").pop()!.split(" "); return (+stat[13] + +stat[14]) * 1000 / ticks; };
+  const childCpu = () => { const stat = readFileSync("/proc/self/stat", "utf8").split(") ").pop()!.split(" "); return (Number(stat[13]) + Number(stat[14])) * 1000 / ticks; };
   const startCpu = childCpu(), latency: number[] = [];
   const report: ReplayReport = { total: 0, ignored: 0, statusCounts: Object.create(null), imagesWithHits: 0, hitRate: 0, perRule: Object.create(null), latencyMs: { p50: 0, p95: 0, max: 0 }, childCpuMs: 0, accuracy: "unknown" };
   const counts: Record<string, Counts> = Object.create(null);
@@ -32,11 +32,12 @@ export async function replayImages(opts: { folder: string; detector: Detector; l
     report.statusCounts[result.status] = (report.statusCounts[result.status] || 0) + 1;
     if (result.findings.length) report.imagesWithHits++;
     for (const hit of result.findings) report.perRule[hit.rule] = (report.perRule[hit.rule] || 0) + 1;
-    if (opts.labels) {
+    const labels = opts.labels;
+    if (labels) {
       const remaining = [...result.findings];
       // Match specific hashes first, then rule-only labels.
       // Labels key by sha256 or by file name; reports never include either.
-      const own = (k: string) => Object.hasOwn(opts.labels!, k) ? opts.labels![k] : undefined;
+      const own = (k: string) => Object.hasOwn(labels, k) ? labels[k] : undefined;
       const expected = (own(hash) || own(entry.name) || []).map(l => typeof l === "string" ? { rule: l } : l).sort((a, b) => Number(!!b.hash) - Number(!!a.hash));
       for (const label of expected) {
         const index = remaining.findIndex(hit => hit.rule === label.rule && (!label.hash || hit.hash === label.hash));

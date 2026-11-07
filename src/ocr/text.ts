@@ -1,10 +1,11 @@
 // Enhanced OCR text scanning. OCR breaks secrets in predictable ways: unicode dashes,
 // spaces around punctuation, a token split by a space, and O/0 or l/1 swaps next to digits.
 // Each repair is a separate scan variant; variants only add findings, never remove them.
-import type { Detector, Finding } from "./detector.ts";
+import type { Detector, Finding } from "../detector.ts";
 
 export type OcrMode = "basic" | "enhanced";
 export const OCR_MODES: readonly OcrMode[] = ["basic", "enhanced"];
+export const isOcrMode = (v: string): v is OcrMode => OCR_MODES.some(m => m === v);
 
 /** Folds typographic punctuation that OCR emits for ASCII characters. */
 export function foldOcrText(text: string): string {
@@ -37,8 +38,9 @@ export function scanOcrText(text: string, detector: Detector, mode: OcrMode = "e
   // Raw findings always stay; every repair below only adds. Folding keeps lengths and newlines.
   const findings = detector.scan(text), folded = foldOcrText(text), lines = folded.split("\n");
   const starts: number[] = [];
-  for (let i = 0, at = 0; i < lines.length; at += lines[i].length + 1, i++) starts.push(at);
-  const lineOf = (offset: number) => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= offset) lo = mid; else hi = mid - 1; } return lo; };
+  let at = 0;
+  for (const line of lines) { starts.push(at); at += line.length + 1; }
+  const lineOf = (offset: number) => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid]! <= offset) lo = mid; else hi = mid - 1; } return lo; };
   // One value read two ways must not count twice: a variant hit is new only when its value hash is
   // new and its line has no hit for the same rule and known name. Distinct known values differ by name.
   // ponytail: two different pattern values of one rule on one line, one only visible after repair,
@@ -78,8 +80,9 @@ export function scanOcrText(text: string, detector: Detector, mode: OcrMode = "e
     }
     for (const v of [despace(fixed), digitFix(despace(fixed))]) for (const f of detector.scan(v)) if (joinable(f)) add(i, f);
     // A long token can wrap onto the next line ("Bearer" then the JWT); a pair hit holds both lines.
-    if (lines[i + 1]?.trim()) {
-      const pair = `${fixed} ${glyphFix(lines[i + 1])}`;
+    const next = lines[i + 1];
+    if (next?.trim()) {
+      const pair = `${fixed} ${glyphFix(next)}`;
       for (const v of [despace(pair), joinTokens(tighten(pair))]) for (const f of detector.scan(v)) if (joinable(f)) add(i, f, 2);
     }
   }
@@ -87,6 +90,6 @@ export function scanOcrText(text: string, detector: Detector, mode: OcrMode = "e
   // password. Drop emails on a URL line only when no "@" is left once the URLs are removed.
   // ponytail: a line with a URL and another address keeps the URL email too; fail closed, use spans if noisy.
   const urlLines = new Set(findings.filter(f => f.rule === "connection_string").map(f => lineFor.get(f)));
-  const onlyUrlAt = (i: number) => !tighten(lines[i]).replace(/[a-z][a-z0-9+.-]{1,20}:\/\/[^\n]*?@[\w.-]+\.[a-z]{2,}\S*/gi, " ").includes("@");
+  const onlyUrlAt = (i: number) => !tighten(lines[i] ?? "").replace(/[a-z][a-z0-9+.-]{1,20}:\/\/[^\n]*?@[\w.-]+\.[a-z]{2,}\S*/gi, " ").includes("@");
   return findings.filter(f => f.rule !== "email" || !urlLines.has(lineFor.get(f)) || !onlyUrlAt(lineFor.get(f)!));
 }

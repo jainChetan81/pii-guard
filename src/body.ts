@@ -20,6 +20,12 @@ export interface BodyFinding extends Finding {
 // Returns the replacement text. Receives the findings already computed for this string, so nothing is scanned twice.
 export type BodyEdit = (text: string, findings: BodyFinding[]) => string;
 
+type Json = Record<string, unknown>;
+// Arrays count too: the walker spreads any object-like provider field, and a property read on an array is undefined.
+const isObject = (v: unknown): v is Json => !!v && typeof v === "object";
+const rec = (v: unknown): Json => (isObject(v) ? v : {});
+const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+
 // Sibling keys and short values give keyword-gated rules context, e.g. {"label":"PAN","value":"..."}.
 const CONTEXT_CHARS = 512, SHORT_VALUE = 64;
 function siblingContext(fields: [string, unknown][], except: number): string {
@@ -33,8 +39,8 @@ function siblingContext(fields: [string, unknown][], except: number): string {
     parts.push(part);
     chars += separator.length + part.length;
   };
-  for (let i = 0; i < fields.length && chars < CONTEXT_CHARS; i++) {
-    const [key, value] = fields[i];
+  for (const [i, [key, value]] of fields.entries()) {
+    if (chars >= CONTEXT_CHARS) break;
     add(key);
     if (i !== except && typeof value === "string" && value.length <= SHORT_VALUE) add(value);
   }
@@ -59,7 +65,7 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
   const result: BodyScanResult = { findings: [], images: 0, imageBytes: 0, chars: 0, unscanned: { images: 0, files: 0, opaque: 0 } };
 
   // Returns the replacement for a string node; any other node is edited in place.
-  function walk(node: any, ctx: Context, path: string, depth = 0, scanContext?: string): any {
+  function walk(node: unknown, ctx: Context, path: string, depth = 0, scanContext?: string): unknown {
     if (depth > 100) throw Error("Request nesting limit exceeded");
     // Numbers are scanned as text but never rewritten, so the body keeps its types.
     if (typeof node === "number" && Number.isFinite(node)) { walk(String(node), { ...ctx, ro: true }, path, depth, scanContext); return node; }
@@ -74,26 +80,27 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
       node.forEach((item, i) => { const out = walk(item, ctx, `${path}[${i}]`, depth + 1); if (out !== item) node[i] = out; });
       return node;
     }
-    if (!node || typeof node !== "object") return node;
-    const own = TYPES.has(node.type) ? node.type : "-";
+    if (!isObject(node)) return node;
+    const type = str(node.type), role = str(node.role), source = rec(node.source);
+    const own = type !== undefined && TYPES.has(type) ? type : "-";
     // Signed thinking must be replayed byte-for-byte (the provider rejects edits), so it is readonly.
     const signed = ctx.ro || (node.type === "thinking" && typeof node.signature === "string");
-    const next: Context = ROLES.has(node.role)
-      ? { role: node.role, type: own, ro: signed }
+    const next: Context = role !== undefined && ROLES.has(role)
+      ? { role, type: own, ro: signed }
       : { role: ctx.role, type: ctx.type === "-" ? own : ctx.type, ro: signed };
     // Metadata copies are scanned but cannot be rewritten in the real body.
     const copy: Context = { ...next, ro: true };
     const skip = new Set<string>();
     const candidate = node.inline_data || node.inlineData;
-    const inline = candidate && typeof candidate === "object" && typeof candidate.data === "string" && typeof (candidate.mime_type || candidate.mimeType) === "string" ? candidate : undefined;
-    const mime = inline?.mime_type || inline?.mimeType || node.source?.media_type;
-    const fileReference = node.fileData || node.file_data;
-    if (IMAGE_TYPES.has(node.type) || (inline && typeof mime === "string" && mime.startsWith("image/"))) {
+    const inline = isObject(candidate) && typeof candidate.data === "string" && typeof (candidate.mime_type || candidate.mimeType) === "string" ? candidate : undefined;
+    const mime = inline?.mime_type || inline?.mimeType || source.media_type;
+    const fileReference = rec(node.fileData || node.file_data);
+    if ((type !== undefined && IMAGE_TYPES.has(type)) || (inline && typeof mime === "string" && mime.startsWith("image/"))) {
       result.images++;
       result.unscanned.images++;
-      let data = inline?.data || (node.source?.type === "base64" ? node.source.data : undefined);
+      let data = inline?.data || (source.type === "base64" ? source.data : undefined);
       let imageMime = mime;
-      const url = node.image_url?.url || node.image_url || node.source?.url;
+      const url = rec(node.image_url).url || node.image_url || source.url;
       if (typeof url === "string") {
         const match = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]*)$/i.exec(url);
         if (match) { imageMime = match[1]; data = match[2]; }
@@ -103,32 +110,32 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
         const compact = data.replace(/\s/g, "");
         result.imageBytes += Math.max(0, Math.floor(compact.length * 3 / 4) - (compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0));
       }
-      onImage?.({ data: typeof data === "string" ? data : undefined, mime: imageMime, source: `${next.role}/${next.type}`, path });
-      if (node.source && typeof node.source === "object") {
+      onImage?.({ data: str(data), mime: str(imageMime), source: `${next.role}/${next.type}`, path });
+      if (isObject(node.source)) {
         const { data: encoded, url: reference, ...metadata } = node.source;
         walk(typeof data === "string" ? metadata : { ...metadata, data: encoded }, copy, `${path}.source`, depth + 1);
       }
-      if (node.image_url && typeof node.image_url === "object") {
+      if (isObject(node.image_url)) {
         const { url: reference, ...metadata } = node.image_url;
         walk(metadata, copy, `${path}.image_url`, depth + 1);
       }
       ["source", "image_url", "inline_data", "inlineData"].forEach(k => skip.add(k));
-    } else if ((node.input_audio && typeof node.input_audio === "object") || (node.type === "audio" && typeof node.data === "string")) {
+    } else if (isObject(node.input_audio) || (node.type === "audio" && typeof node.data === "string")) {
       result.unscanned.files++;
       skip.add("data");
-      if (node.input_audio) {
+      if (isObject(node.input_audio)) {
         const { data: encoded, ...metadata } = node.input_audio;
         walk(metadata, copy, `${path}.input_audio`, depth + 1);
         skip.add("input_audio");
       }
-    } else if (inline || (node.type === "document" && !["text", "content"].includes(node.source?.type)) || node.type === "input_file" || node.type === "file" || (fileReference && typeof (fileReference.fileUri || fileReference.file_uri) === "string")) {
+    } else if (inline || (node.type === "document" && source.type !== "text" && source.type !== "content") || node.type === "input_file" || node.type === "file" || typeof (fileReference.fileUri || fileReference.file_uri) === "string") {
       result.unscanned.files++;
-      if (node.source && typeof node.source === "object") {
+      if (isObject(node.source)) {
         const { data: encoded, ...metadata } = node.source;
         walk(node.source.type === "base64" ? metadata : node.source, node.source.type === "base64" ? copy : next, `${path}.source`, depth + 1);
         skip.add("source");
       }
-      if (node.type === "file" && node.file && typeof node.file === "object") {
+      if (node.type === "file" && isObject(node.file)) {
         const { file_data: encoded, ...metadata } = node.file;
         walk(metadata, copy, `${path}.file`, depth + 1);
         skip.add("file");
@@ -138,7 +145,7 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
     }
     for (const key of ["inline_data", "inlineData"]) if (skip.has(key) && node[key]) {
       const value = node[key];
-      if (typeof value === "object" && typeof value.data === "string" && typeof (value.mime_type || value.mimeType) === "string") {
+      if (isObject(value) && typeof value.data === "string" && typeof (value.mime_type || value.mimeType) === "string") {
         const { data: encoded, ...metadata } = value;
         walk(metadata, copy, `${path}.${key}`, depth + 1);
       } else { const out = walk(value, next, `${path}.${key}`, depth + 1); if (out !== value) node[key] = out; }

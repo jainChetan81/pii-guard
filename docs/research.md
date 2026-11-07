@@ -170,7 +170,7 @@ framework rather than a body inspector; no India entity story surfaced — only 
    pii-guard gates weak formats on a keyword window plus checksum.
 3. **Local OCR without Presidio the service**: presidio-image-redactor drags Python, Tesseract,
    spaCy and Flask and calls itself not production ready. The short path is spawning system
-   `tesseract` (now available offline in `src/media.ts`) and feeding text into the existing detector.
+   `tesseract` (now available offline in `src/ocr/media.ts`) and feeding text into the existing detector.
    Keep low-confidence, referenced, and unsupported images explicitly incomplete.
 4. **If enforcement is ever wanted**, do not hand-roll masking inside 9Router. Test
    LLM-Shield-Proxy (field coverage, fails closed, leak benchmark) and veil (transport matrix)
