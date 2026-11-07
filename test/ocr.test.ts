@@ -152,23 +152,20 @@ test("malformed base64 and unsupported images are skipped", async () => {
   });
 });
 
-test("pending image and encoded-byte limits reject excess work", async () => {
+test("cache hits and duplicates skip the queue; unique misses past 32 report queue_full", async () => {
   __resetOcrCacheForTests();
   await withFake(`sleep 0.1\n${printTsv}`, async () => {
     const w = worker();
-    const results: OcrResult[] = [];
-    let completed = 0;
-    let done!: () => void;
-    const allDone = new Promise<void>(resolve => { done = resolve; });
-    for (let i = 0; i < 32; i++) {
-      expect(w.enqueue(image(10), result => {
-        results.push(result);
-        if (++completed === 32) done();
-      })).toBe(true);
-    }
-    expect(w.enqueue(image(10), () => {})).toBe(false);
-    await allDone;
-    expect(results).toHaveLength(32);
+    // 40 copies of one image coalesce into one OCR run; none overflow.
+    const same = await Promise.all(Array.from({ length: 40 }, () => w.scan(image(10))));
+    expect(same.filter(r => r.reason === "queue_full")).toHaveLength(0);
+    // Cached now: a later burst never touches the queue.
+    expect((await w.scan(image(10))).cache).toBe("hit");
+    // 40 unique misses: one runs, 32 wait, the rest overflow.
+    const unique = await Promise.all(Array.from({ length: 40 }, (_, i) => w.scan(image(100 + i))));
+    const full = unique.filter(r => r.reason === "queue_full").length;
+    expect(full).toBeGreaterThan(0);
+    expect(full).toBeLessThanOrEqual(8);
     const large = { ...image(11), data: "A".repeat(17 * 1024 * 1024) };
     expect(w.enqueue(large, () => {})).toBe(true);
     expect(w.enqueue(large, () => {})).toBe(false);

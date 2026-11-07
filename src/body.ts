@@ -1,4 +1,5 @@
 // Scan text and report media coverage without changing the request.
+import { preview } from "./preview.ts";
 import type { Detector, Finding } from "./detector.ts";
 
 const ROLES = new Set(["user", "assistant", "system", "developer", "tool", "model", "function"]);
@@ -11,6 +12,9 @@ export interface BodyFinding extends Finding {
   path: string;
   // Set when an edit callback was given but this text could not be rewritten (object keys, media metadata).
   readonly?: true;
+  // Masked value and masked surrounding text; never raw. Safe to log.
+  preview?: string;
+  context?: string;
 }
 
 // Returns the replacement text. Receives the findings already computed for this string, so nothing is scanned twice.
@@ -61,7 +65,8 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
     if (typeof node === "number" && Number.isFinite(node)) { walk(String(node), { ...ctx, ro: true }, path, depth, scanContext); return node; }
     if (typeof node === "string") {
       result.chars += node.length;
-      const found: BodyFinding[] = detector.scan(node, scanContext).map(f => ({ ...f, source: `${ctx.role}/${ctx.type}`, path, ...(edit && ctx.ro && { readonly: true as const }) }));
+      const raw = detector.scan(node, scanContext);
+      const found: BodyFinding[] = raw.map(f => ({ ...preview(node, f, raw), ...f, source: `${ctx.role}/${ctx.type}`, path, ...(edit && ctx.ro && { readonly: true as const }) }));
       result.findings.push(...found);
       return edit && !ctx.ro && found.length ? edit(node, found) : node;
     }
@@ -140,7 +145,7 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
     }
     const fields = Object.entries(node);
     for (const [index, [key, value]] of fields.entries()) {
-      for (const f of detector.scan(key)) result.findings.push({ ...f, source: `${next.role}/${next.type}`, path: `${path}[key:${index}]`, ...(edit && { readonly: true as const }) });
+      { const raw = detector.scan(key); for (const f of raw) result.findings.push({ ...preview(key, f, raw), ...f, source: `${next.role}/${next.type}`, path: `${path}[key:${index}]`, ...(edit && { readonly: true as const }) }); }
       if (skip.has(key)) continue;
       if ((key === "signature" && node.type === "thinking") || (key === "data" && node.type === "redacted_thinking") || (key === "encrypted_content" && node.type === "reasoning")) {
         result.unscanned.opaque++;
