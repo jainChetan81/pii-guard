@@ -57,7 +57,7 @@ test('export, replay and report protect values', () => {
   expect(replay.stdout).toMatch(/Report: .*reports\/replay-\d{8}-\d{6}-[a-f0-9]{12}\.md/);
   expect(replay.stdout + replay.stderr).not.toContain(secret);
   expect(replay.stdout + replay.stderr).not.toContain(token);
-  const md = readFileSync(join(dir,'reports',readdirSync(join(dir,'reports'))[0]),'utf8');
+  const md = readFileSync(join(dir,'reports',readdirSync(join(dir,'reports'))[0]!),'utf8');
   expect(md).toContain('login.password'); expect(md).toContain('parse errors: 1');
   expect(md).not.toContain(secret); expect(md).not.toContain(token);
   const events = join(dir,'events.jsonl');
@@ -141,7 +141,7 @@ test('replay report names stay unique and context masks Unicode text', () => {
   expect(second).toMatch(/replay-\d{8}-\d{6}-[a-f0-9]{12}\.md/);
   const names = readdirSync(join(dir,'reports'));
   expect(names).toHaveLength(2);
-  const md = readFileSync(join(dir,'reports',names[0]),'utf8') + readFileSync(join(dir,'reports',names[1]),'utf8');
+  const md = readFileSync(join(dir,'reports',names[0]!),'utf8') + readFileSync(join(dir,'reports',names[1]!),'utf8');
   expect(md).not.toContain('नमस्ते'); expect(md).not.toContain('秘密'); expect(md).not.toContain('世界');
   expect(md).toMatch(/x{3,}/);
   expect(names[0]).not.toBe(names[1]);
@@ -177,7 +177,7 @@ test('one unscannable row leaves a partial report and preserves valid neighbors'
   const r=spawnSync('bun',[cli,'replay','--home',dir,'--stdin','--label','synthetic'],{cwd:dir,encoding:'utf8',input});
   expect(r.status).toBe(2);
   expect(r.stdout+r.stderr).not.toContain(token);
-  const report=readFileSync(join(dir,'reports',readdirSync(join(dir,'reports'))[0]),'utf8');
+  const report=readFileSync(join(dir,'reports',readdirSync(join(dir,'reports'))[0]!),'utf8');
   expect(report).toContain('rows: 2');
   expect(report).toContain('scan errors: 1');
 });

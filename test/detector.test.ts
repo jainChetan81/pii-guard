@@ -10,8 +10,8 @@ const D = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,
 const P = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
 function withCheck(base: string): string {
   let c = 0;
-  for (let i = 0; i < base.length; i++) c = D[c][P[(i + 1) % 8][+base[base.length - 1 - i]]];
-  return base + INV[c];
+  for (let i = 0; i < base.length; i++) c = D[c]![P[(i + 1) % 8]![+base[base.length - 1 - i]!]!]!;
+  return base + INV[c]!;
 }
 const AADHAAR = withCheck("23456789012");
 const SECRET = "sk-or-v1-" + "a1b2c3d4".repeat(8);
@@ -40,7 +40,7 @@ describe("own list", () => {
   test("own-list beats pattern on same span", () => {
     const f = d.scan(`OPENROUTER_API_KEY=${SECRET}`);
     expect(f).toHaveLength(1);
-    expect(f[0].rule).toBe("known");
+    expect(f[0]!.rule).toBe("known");
   });
   test("redact uses stable placeholders", () => {
     const a = d.redact("pan ABCPE1234F and ABCPE1234F").text;
@@ -75,8 +75,8 @@ describe("patterns need keywords for weak formats", () => {
   test("hash is stable per detector and hides value", () => {
     const [a] = d.scan(`x ${SECRET}`);
     const [b] = d.scan(`y ${SECRET}`);
-    expect(a.hash).toBe(b.hash);
-    expect(a.hash).not.toContain("a1b2");
+    expect(a!.hash).toBe(b!.hash);
+    expect(a!.hash).not.toContain("a1b2");
   });
 });
 
@@ -85,8 +85,8 @@ test("long scan results are cached without sharing mutable findings", () => {
   const text = `${"x".repeat(300)} cache-secret`;
   const first = detector.scan(text);
   const expected = first.map(f => ({ ...f }));
-  first[0].hash = "changed";
-  first.push({ ...first[0] });
+  first[0]!.hash = "changed";
+  first.push({ ...first[0]! });
   expect(detector.scan(text)).toEqual(expected);
 });
 
@@ -114,7 +114,7 @@ describe("scanBody", () => {
   });
   test("OpenAI Responses function_call_output", () => {
     const body = { input: [{ type: "function_call_output", call_id: "c", output: "ABCPE1234F" }] };
-    expect(scanBody(body, d).findings[0].source).toBe("-/function_call_output");
+    expect(scanBody(body, d).findings[0]!.source).toBe("-/function_call_output");
   });
 
   test("keyword context includes direct sibling keys and short string values", () => {

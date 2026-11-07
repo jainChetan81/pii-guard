@@ -17,7 +17,7 @@ export interface ReplayReport {
 export async function replayImages(opts: { folder: string; detector: Detector; labels?: Record<string, Array<string | { rule: string; hash?: string }>>; mode?: OcrMode }): Promise<ReplayReport> {
   const ticks = Number(spawnSync("getconf", ["CLK_TCK"], { encoding: "utf8" }).stdout);
   if (!Number.isFinite(ticks) || ticks <= 0) throw Error("Cannot determine CPU clock ticks");
-  const childCpu = () => { const stat = readFileSync("/proc/self/stat", "utf8").split(") ").pop()!.split(" "); return (+stat[13] + +stat[14]) * 1000 / ticks; };
+  const childCpu = () => { const stat = readFileSync("/proc/self/stat", "utf8").split(") ").pop()!.split(" "); return (Number(stat[13]) + Number(stat[14])) * 1000 / ticks; };
   const startCpu = childCpu(), latency: number[] = [];
   const report: ReplayReport = { total: 0, ignored: 0, statusCounts: Object.create(null), imagesWithHits: 0, hitRate: 0, perRule: Object.create(null), latencyMs: { p50: 0, p95: 0, max: 0 }, childCpuMs: 0, accuracy: "unknown" };
   const counts: Record<string, Counts> = Object.create(null);

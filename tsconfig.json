@@ -5,6 +5,7 @@
     "moduleResolution": "NodeNext",
     "types": ["bun"],
     "strict": true,
+    "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,

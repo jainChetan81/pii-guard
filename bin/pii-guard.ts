@@ -5,34 +5,36 @@ import { join, dirname, basename, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
-import { createDetector } from '../src/detector.ts';
+import { parseArgs } from 'node:util';
+import { createDetector, KNOWN_CATEGORIES, type KnownCategory, type KnownItem } from '../src/detector.ts';
 import { scanBody, type BodyScanResult } from '../src/body.ts';
+import type { Detector } from '../src/detector.ts';
 import { scanFile, scanBodyWithOcr } from '../src/media.ts';
 import { replayImages, formatReport } from '../src/replay-images.ts';
 import { createScanServer, listen } from '../src/server.ts';
-import { OCR_MODES, type OcrMode } from '../src/ocr-text.ts';
+import { isOcrMode } from '../src/ocr-text.ts';
 import { doctor } from '../src/doctor.ts';
 
-const opts: ParseArgsOptionsConfig = { 'bw-json': { type: 'string' }, 'from-text': { type: 'string', multiple: true }, out: { type: 'string' }, folder: { type: 'string' }, collection: { type: 'string' }, org: { type: 'string' }, known: { type: 'string' }, source: { type: 'string' }, stdin: { type: 'boolean' }, label: { type: 'string' }, home: { type: 'string' }, since: { type: 'string' }, context: { type: 'boolean' }, events: { type: 'string' } };
+const opts = {
+  'bw-json': { type: 'string' }, 'from-text': { type: 'string', multiple: true }, out: { type: 'string' }, folder: { type: 'string' },
+  collection: { type: 'string' }, org: { type: 'string' }, known: { type: 'string' }, source: { type: 'string' }, stdin: { type: 'boolean' },
+  label: { type: 'string' }, home: { type: 'string' }, since: { type: 'string' }, context: { type: 'boolean' }, events: { type: 'string' },
+  file: { type: 'string', multiple: true }, ocr: { type: 'boolean' }, labels: { type: 'string' }, host: { type: 'string' }, port: { type: 'string' },
+  'ocr-mode': { type: 'string' },
+} as const;
 const args = process.argv.slice(2);
-opts.file = { type: 'string', multiple: true };
-opts.ocr = { type: 'boolean' };
-opts.labels = { type: 'string' };
-opts.host = { type: 'string' };
-opts.port = { type: 'string' };
-opts['ocr-mode'] = { type: 'string' };
 const command = args.shift();
 const knownCommand = command === 'known' ? args.shift() : undefined;
 if (command === 'known' && !['export', 'check'].includes(knownCommand || '')) fail('Expected known export|check');
 function fail(message: string): never { console.error(message); process.exit(1); }
-let o: Record<string, any> = {};
-try { o = parseArgs({ args, options: opts, strict: true }).values; } catch { fail('Invalid arguments'); }
+function parseOptions() { try { return parseArgs({ args, options: opts, strict: true }).values; } catch { fail('Invalid arguments'); } }
+const o = parseOptions();
 const home = resolve(o.home || homedir());
 const knownPath = o.known || join(home, '.config/pii-guard/known.json');
 // --ocr-mode wins over PII_GUARD_OCR_MODE; default enhanced. basic is the fallback for hosts without ffmpeg or for comparison.
-const ocrMode = (o['ocr-mode'] || process.env.PII_GUARD_OCR_MODE || 'enhanced') as OcrMode;
-if (!OCR_MODES.includes(ocrMode)) fail('Invalid --ocr-mode; expected basic or enhanced');
+const ocrModeInput = o['ocr-mode'] || process.env.PII_GUARD_OCR_MODE || 'enhanced';
+if (!isOcrMode(ocrModeInput)) fail('Invalid --ocr-mode; expected basic or enhanced');
+const ocrMode = ocrModeInput;
 let patternDetector = createDetector();
 let literalValues: string[] = [];
 // Labels are untrusted metadata. Mask detected values and markdown controls.
@@ -55,29 +57,40 @@ function stamp(v: unknown) {
   if (typeof v === 'string' && /^\d+$/.test(v)) return stamp(Number(v));
   return typeof v === 'string' ? Date.parse(v) : NaN;
 }
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 function rowStamp(v: unknown) {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return NaN;
-  const row = v as Record<string, unknown>;
+  if (!isRecord(v)) return NaN;
   for (const key of ['timestamp', 'ts', 'createdAt']) {
-    const t = stamp(row[key]);
+    const t = stamp(v[key]);
     if (Number.isFinite(t)) return t;
   }
   return NaN;
 }
-function readKnown(path: string, optional: boolean = false) {
+type KnownList = { version: 1; salt: string; items: Required<KnownItem>[] };
+const count = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+const nonBlank = (v: unknown): v is string => typeof v === 'string' && !!v.trim();
+const isCategory = (v: unknown): v is KnownCategory => KNOWN_CATEGORIES.some(c => c === v);
+const isKnownEntry = (x: unknown): x is Required<KnownItem> => isRecord(x) && nonBlank(x.name) && nonBlank(x.value) && isCategory(x.category);
+function isKnownList(k: unknown): k is KnownList {
+  return isRecord(k) && k.version === 1 && typeof k.salt === 'string' && /^[a-f0-9]{64}$/i.test(k.salt) && Array.isArray(k.items) && k.items.every(isKnownEntry);
+}
+function readKnown(path: string, optional: boolean): KnownList | null;
+function readKnown(path: string): KnownList;
+function readKnown(path: string, optional = false): KnownList | null {
   if (optional && !existsSync(path)) { console.error('Known list missing; using patterns only'); return null; }
-  const k = JSON.parse(readFileSync(path, 'utf8'));
-  if (k?.version !== 1 || !/^[a-f0-9]{64}$/i.test(k.salt) || !Array.isArray(k.items) || k.items.some((x: any) => !x || typeof x !== 'object' || Array.isArray(x) || typeof x.name !== 'string' || !x.name.trim() || typeof x.value !== 'string' || !x.value.trim() || !['secret', 'id', 'contact'].includes(x.category))) throw Error('Invalid known list');
-  literalValues = k.items.map((x: any) => x.value).sort((a: string, b: string) => b.length - a.length);
+  const k: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  if (!isKnownList(k)) throw Error('Invalid known list');
+  literalValues = k.items.map(x => x.value).sort((a, b) => b.length - a.length);
   return k;
 }
+const detectorOptions = (known: KnownList | null) => known ? { known: known.items, salt: known.salt } : { known: [] };
 const secretLike = (s: unknown) => typeof s === 'string' && s.length >= 12 && /^[A-Za-z0-9_\-.@+/=]+$/.test(s) && /[A-Za-z]/.test(s) && /\d/.test(s) && !/^(?:http|\/|~)/i.test(s);
 const tokens = (s: unknown) => typeof s === 'string' ? (s.match(/[A-Za-z0-9_~\-.@+/=]+/g) || []).filter(secretLike) : [];
 function exportKnown() {
   const out = resolve(o.out || knownPath);
   const prior = existsSync(out) ? readKnown(out) : null;
-  const items: { name: string; value: string; category: string }[] = [], seen = new Set<string>();
-  const add = (name: string, value: unknown, category: string = 'secret', minimum: number = category === 'id' ? 6 : 8) => {
+  const items: Required<KnownItem>[] = [], seen = new Set<string>();
+  const add = (name: string, value: unknown, category: KnownCategory = 'secret', minimum: number = category === 'id' ? 6 : 8) => {
     if (typeof value !== 'string' || !value.trim() || value.length < minimum || seen.has(value)) return;
     seen.add(value); items.push({ name, value, category });
   };
@@ -86,16 +99,17 @@ function exportKnown() {
     const prefix = context ? context + '\n' : '', input = prefix + text;
     for (const [i, f] of patternDetector.scan(input).entries()) {
       if (f.start < prefix.length) continue;
-      const category = f.kind === 'secret' ? 'secret' : ['email', 'in_phone', 'upi'].includes(f.rule) ? 'contact' : 'id';
+      const category: KnownCategory = f.kind === 'secret' ? 'secret' : ['email', 'in_phone', 'upi'].includes(f.rule) ? 'contact' : 'id';
       add(`${name}.pattern-${i + 1}`, input.slice(f.start, f.end), category);
     }
     tokens(text).forEach((value, i) => add(`${name}.token-${i + 1}`, value));
   }
+  // ponytail: untrusted Bitwarden JSON stays `any`; each field is type-checked where read. Add a zod schema if more item types are parsed.
   let bw: any[] = [];
   if (o['bw-json']) bw = JSON.parse(readFileSync(o['bw-json'], 'utf8'));
   else if (!o['from-text']?.length || o.folder || o.collection || o.org) {
     const a = ['list', 'items'];
-    for (const [key, flag] of [['folder','--folderid'], ['collection','--collectionid'], ['org','--organizationid']]) if (o[key]) a.push(flag, o[key]);
+    for (const [value, flag] of [[o.folder,'--folderid'], [o.collection,'--collectionid'], [o.org,'--organizationid']] as const) if (value) a.push(flag, value);
     const r = spawnSync(process.env.BW_BIN || 'bw', a, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
     if (r.error || r.status !== 0) throw Error('Bitwarden export failed');
     bw = JSON.parse(r.stdout);
@@ -104,7 +118,7 @@ function exportKnown() {
   for (const item of bw) {
     if (!item || typeof item !== 'object') continue;
     const slug = String(item.name || 'item').toLowerCase().match(/[a-z0-9]+/g)?.join('-') || 'item';
-    const put = (field: string, value: unknown, category: string = 'secret', minimum?: number) => add(`${slug}.${field}`, value, category, minimum);
+    const put = (field: string, value: unknown, category: KnownCategory = 'secret', minimum?: number) => add(`${slug}.${field}`, value, category, minimum);
     if (item.type === 1) {
       put('password', item.login?.password, 'secret', 1);
       let totp = item.login?.totp;
@@ -138,12 +152,12 @@ function exportKnown() {
   } finally { if (existsSync(tmp)) unlinkSync(tmp); }
   console.log(`Exported: secret ${items.filter(x => x.category === 'secret').length}, id ${items.filter(x => x.category === 'id').length}, contact ${items.filter(x => x.category === 'contact').length}\nOutput: ${label(out)}`);
 }
-async function* lines(stream: any): AsyncGenerator<string> { const rl = createInterface({ input: stream, crlfDelay: Infinity }); for await (const line of rl) yield line; }
+async function* lines(stream: NodeJS.ReadableStream): AsyncGenerator<string> { const rl = createInterface({ input: stream, crlfDelay: Infinity }); for await (const line of rl) yield line; }
 function checkKnown() {
   const known = readKnown(knownPath);
   const detector = createDetector({ known: known.items, salt: known.salt });
   let checks = 0, failed = 0;
-  for (const item of new Map<string, { value: string }>(known.items.map((x: { value: string }) => [x.value, x])).values()) {
+  for (const item of new Map(known.items.map(x => [x.value, x])).values()) {
     const bodies = [
       { messages: [{ role: 'user', content: item.value }] },
       { messages: [{ role: 'user', content: [{ type: 'tool_result', content: item.value }] }] },
@@ -168,7 +182,9 @@ function* files(dir: string): Generator<string> {
     else if (entry.isFile() && p.endsWith('.jsonl')) yield p;
   }
 }
-async function database(path: string): Promise<any> {
+// Both drivers expose prepare().iterate() and close(); rows are untyped until checked.
+type ReadonlyDb = { prepare(sql: string): { iterate(): Iterable<unknown> }; close(): void };
+async function database(path: string): Promise<ReadonlyDb> {
   if (globalThis.Bun) { const { Database } = await import('bun:sqlite'); return new Database(path, { readonly: true }); }
   const { DatabaseSync } = await import('node:sqlite'); return new DatabaseSync(path, { readOnly: true });
 }
@@ -176,38 +192,40 @@ function top(map: Map<string, number>, n: number) { return [...map].sort((a,b) =
 function inc(map: Map<string, number>, key: string, n: number = 1) { map.set(key, (map.get(key) || 0) + n); }
 async function replay() {
   const cutoff = sinceDate(o.since), known = readKnown(knownPath, !o.known);
-  const detector = createDetector({ known: known?.items || [], ...(known ? { salt: known.salt } : {}) });
+  const detector = createDetector(detectorOptions(known));
   patternDetector = detector;
-  const categories = new Map((known?.items || []).map((x: any) => [x.name, x.category]));
+  const categories = new Map<string, string>((known?.items || []).map(x => [x.name, x.category]));
   const selected: string[] = o.source ? o.source.split(',') : o.stdin ? [] : ['claude','codex','t3','9router'];
   if (selected.some(s => !['claude','codex','t3','9router'].includes(s))) throw Error('Invalid source');
   if (o.stdin && !o.label) throw Error('--stdin requires --label');
-  const reports: any[] = [], seen = new Set<string>();
-  function aggregate(name: string) {
-    const stats = { name, files: 0, rows: 0, skipped: 0, undated: 0, chars: 0, errors: 0, scanErrors: 0, images: 0, bytes: 0, unscannedImages: 0, unscannedFiles: 0, opaque: 0, ocr: { scanned: 0, partial: 0, empty: 0, failed: 0, skipped: 0 }, keys: new Map() }; reports.push(stats); return stats;
-  }
-  function withinCutoff(stats: any, timestamp: unknown) {
+  type KeyStats = { kind: string; hits: number; hashes: Set<string>; sources: Map<string, number>; contexts: Map<string, number> };
+  const newStats = (name: string) => ({ name, files: 0, rows: 0, skipped: 0, undated: 0, chars: 0, errors: 0, scanErrors: 0, images: 0, bytes: 0, unscannedImages: 0, unscannedFiles: 0, opaque: 0, ocr: { scanned: 0, partial: 0, empty: 0, failed: 0, skipped: 0 } as Record<string, number>, keys: new Map<string, KeyStats>() });
+  type Stats = ReturnType<typeof newStats>;
+  const reports: Stats[] = [], seen = new Set<string>();
+  function aggregate(name: string) { const stats = newStats(name); reports.push(stats); return stats; }
+  function withinCutoff(stats: Stats, timestamp: unknown) {
     if (cutoff === null) return true;
     const t = stamp(timestamp);
     if (!Number.isFinite(t)) { stats.undated++; return false; }
     if (t < cutoff) { stats.skipped++; return false; }
     return true;
   }
-  function scan(stats: any, body: any) {
-    const scanner = o.context ? { scan(text: string) { const fs = detector.scan(text); for (const f of fs) (f as any).context = (text.slice(Math.max(0,f.start-14), f.start) + '[V]' + text.slice(f.end,f.end+8)).replace(/\S/gu, 'x'); return fs; } } : detector;
+  // With --context, each finding carries a masked shape of its surroundings; scanBody copies it onto the body finding.
+  function scan(stats: Stats, body: unknown) {
+    const scanner: Detector = o.context ? { ...detector, scan(text, context) { return detector.scan(text, context).map(f => ({ ...f, context: (text.slice(Math.max(0,f.start-14), f.start) + '[V]' + text.slice(f.end,f.end+8)).replace(/\S/gu, 'x') })); } } : detector;
     let r: BodyScanResult & { ocr?: Record<string, number> };
-    try { r = o.ocr ? scanBodyWithOcr(body, scanner as any, ocrMode) : scanBody(body, scanner as any); }
+    try { r = o.ocr ? scanBodyWithOcr(body, scanner, ocrMode) : scanBody(body, scanner); }
     catch { stats.scanErrors++; return; }
     stats.rows++; stats.chars += r.chars; stats.images += r.images; stats.bytes += r.imageBytes;
     stats.unscannedImages += r.unscanned.images; stats.unscannedFiles += r.unscanned.files; stats.opaque += r.unscanned.opaque;
-    if (r.ocr) for (const [key, count] of Object.entries(r.ocr)) stats.ocr[key] += count;
+    if (r.ocr) for (const [key, count] of Object.entries(r.ocr)) stats.ocr[key] = (stats.ocr[key] ?? 0) + count;
     for (const f of r.findings) {
       const key = f.name || f.rule; if (f.name) seen.add(f.hash);
       if (!stats.keys.has(key)) stats.keys.set(key, { kind: categories.get(key) || f.kind, hits: 0, hashes: new Set(), sources: new Map(), contexts: new Map() });
-      const k = stats.keys.get(key); k.hits++; k.hashes.add(f.hash); inc(k.sources, f.source); if ((f as any).context) inc(k.contexts, (f as any).context);
+      const k = stats.keys.get(key)!; k.hits++; k.hashes.add(f.hash); inc(k.sources, f.source); if ('context' in f && typeof f.context === 'string') inc(k.contexts, f.context);
     }
   }
-  async function jsonl(stats: any, stream: any) { for await (const line of lines(stream)) { let v; try { v = JSON.parse(line); } catch { stats.errors++; if (cutoff !== null) stats.undated++; continue; } if (!withinCutoff(stats, rowStamp(v))) continue; scan(stats, v); } }
+  async function jsonl(stats: Stats, stream: NodeJS.ReadableStream) { for await (const line of lines(stream)) { let v; try { v = JSON.parse(line); } catch { stats.errors++; if (cutoff !== null) stats.undated++; continue; } if (!withinCutoff(stats, rowStamp(v))) continue; scan(stats, v); } }
   for (const source of selected) {
     if (source === 'claude' || source === 'codex') {
       const dir = join(home, source === 'claude' ? '.claude/projects' : '.codex/sessions');
@@ -221,14 +239,14 @@ async function replay() {
       const db = await database(path);
       try {
         const sql = source === 't3' ? 'SELECT payload_json AS payload, updated_at AS timestamp FROM orchestration_v2_projection_turn_items' : 'SELECT data AS payload, timestamp FROM requestDetails';
-        for (const row of (db.prepare(sql).iterate() as Iterable<any>)) {
-          if (!withinCutoff(stats, row.timestamp)) continue;
-          let v; try { v = JSON.parse(row.payload); } catch { stats.errors++; continue; } scan(stats, v);
+        for (const row of db.prepare(sql).iterate()) {
+          if (!isRecord(row) || !withinCutoff(stats, row.timestamp)) continue;
+          let v; try { v = JSON.parse(String(row.payload)); } catch { stats.errors++; continue; } scan(stats, v);
         }
       } finally { db.close(); }
     }
   }
-  if (o.stdin) { const stats = aggregate(o.label); stats.files++; await jsonl(stats, process.stdin); }
+  if (o.stdin && o.label) { const stats = aggregate(o.label); stats.files++; await jsonl(stats, process.stdin); }
   const out = ['# Replay report', '', `Known values seen: ${seen.size} / ${detector.knownCount}`, '', `Cutoff: ${cutoff === null ? 'all available rows' : new Date(cutoff).toISOString()}; inline OCR: ${o.ocr ? 'enabled' : 'disabled'}.`, 'Transcript findings show stored exposure, not proof of provider receipt. OCR misses and truncated logs remain possible.', ''];
   for (const s of reports) {
     out.push(`## ${label(s.name)}`, '', `Files: ${s.files}; rows: ${s.rows}; skipped by --since: ${s.skipped}; undated: ${s.undated}; chars: ${s.chars}; parse errors: ${s.errors}; images: ${s.images}; image bytes: ${s.bytes}`, '', '| Key | Category/kind | Hits | Distinct hashes | Top sources |', '| --- | --- | ---: | ---: | --- |');
@@ -243,28 +261,29 @@ async function replay() {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const fd = openSync(path, 'wx', 0o600);
   try { writeFileSync(fd, out.join('\n')); } finally { closeSync(fd); }
-  console.log(`Replay: ${reports.length} sources, ${reports.reduce((n: number, s: any) => n+s.rows,0)} rows, ${seen.size}/${detector.knownCount} known values\nReport: ${label(path)}`);
+  console.log(`Replay: ${reports.length} sources, ${reports.reduce((n, s) => n+s.rows,0)} rows, ${seen.size}/${detector.knownCount} known values\nReport: ${label(path)}`);
 }
 async function report() {
   const known = readKnown(knownPath, !o.known);
-  patternDetector = createDetector({ known: known?.items || [], ...(known ? { salt: known.salt } : {}) });
+  patternDetector = createDetector(detectorOptions(known));
   const cutoff = sinceDate(o.since), path = o.events || join(home, '.9router/pii-guard/events.jsonl');
   let total = 0, hits = 0, errors = 0, windowRequests = 0, windowHits = 0; const times: number[] = [], counts = new Map<string, number>(), fresh = new Map<string, number>(), sources = new Map<string, number>(), uas = new Map<string, number>(), endpoints = new Map<string, number>();
   for await (const line of lines(createReadStream(path))) {
-    let e: any; try { e = JSON.parse(line); } catch { errors++; continue; }
-    if (!e || typeof e !== 'object' || Array.isArray(e)) { errors++; continue; }
+    let e: unknown; try { e = JSON.parse(line); } catch { errors++; continue; }
+    if (!isRecord(e)) { errors++; continue; }
     if (cutoff !== null && (!Number.isFinite(stamp(e.ts)) || stamp(e.ts) < cutoff)) continue;
     if (e.type === 'stats') {
-      if (Number.isSafeInteger(e.requests) && e.requests >= 0 && Number.isSafeInteger(e.withFindings) && e.withFindings >= 0 && e.withFindings <= e.requests) { windowRequests += e.requests; windowHits += e.withFindings; }
+      const { requests, withFindings } = e;
+      if (count(requests) && count(withFindings) && withFindings <= requests) { windowRequests += requests; windowHits += withFindings; }
       else errors++;
       continue;
     }
-    total++; if (Number.isFinite(e.scanMs) && e.scanMs >= 0) times.push(e.scanMs);
+    total++; if (typeof e.scanMs === 'number' && Number.isFinite(e.scanMs) && e.scanMs >= 0) times.push(e.scanMs);
     if (typeof e.ua === 'string') inc(uas,e.ua); if (typeof e.endpoint === 'string') inc(endpoints,e.endpoint);
     let has = false;
-    if (e.counts && typeof e.counts === 'object' && !Array.isArray(e.counts)) for (const [k,v] of Object.entries(e.counts as Record<string, unknown>)) if (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) { inc(counts,k,v); has = true; }
+    if (isRecord(e.counts)) for (const [k,v] of Object.entries(e.counts)) if (count(v) && v > 0) { inc(counts,k,v); has = true; }
     if (has) hits++;
-    if (Array.isArray(e.new)) for (const f of e.new) if (f && typeof f === 'object' && typeof (f.name || f.rule) === 'string') { inc(fresh,f.name || f.rule); if (typeof f.source === 'string') inc(sources,f.source); }
+    if (Array.isArray(e.new)) for (const f of e.new) { if (!isRecord(f)) continue; const key = f.name || f.rule; if (typeof key !== 'string') continue; inc(fresh,key); if (typeof f.source === 'string') inc(sources,f.source); }
   }
   times.sort((a,b) => a-b); const p = (n: number) => times.length ? times[Math.ceil(n*times.length)-1] : 0;
   console.log(`Requests with findings: ${hits} / ${total} recorded events\nCompleted stats windows: ${windowHits} / ${windowRequests} requests\nCoverage: legacy events omit clean requests; stats windows can cross the cutoff.\nParse errors: ${errors}\nRecorded scan ms p50/p95/max: ${p(.5)} / ${p(.95)} / ${times.at(-1) ?? 0}\nTotals: ${top(counts,counts.size)}\nNew hashes by key: ${top(fresh,fresh.size)}\nNew hashes by source: ${top(sources,sources.size)}\nUser agents: ${top(uas,5)}\nEndpoints: ${top(endpoints,5)}`);
@@ -272,7 +291,7 @@ async function report() {
 function inspectFiles() {
   if (!o.file?.length) throw Error('scan requires --file');
   const known = readKnown(knownPath, !o.known);
-  const detector = createDetector({ known: known?.items || [], ...(known ? { salt: known.salt } : {}) });
+  const detector = createDetector(detectorOptions(known));
   patternDetector = detector;
   for (const [i, path] of o.file.entries()) {
     const r = scanFile(path, detector, ocrMode), counts = new Map<string, number>();
@@ -284,7 +303,7 @@ function inspectFiles() {
 async function replayImageFolder() {
   if (!o.folder) throw Error('replay-images requires --folder');
   const known = readKnown(knownPath, !o.known);
-  const detector = createDetector({ known: known?.items || [], ...(known ? { salt: known.salt } : {}) });
+  const detector = createDetector(detectorOptions(known));
   const labels = o.labels ? JSON.parse(readFileSync(o.labels, 'utf8')) : undefined;
   console.log(formatReport(await replayImages({ folder: resolve(o.folder), detector, labels, mode: ocrMode })));
 }
@@ -292,7 +311,7 @@ async function serve() {
   const known = readKnown(knownPath, !o.known);
   const token = process.env.PII_GUARD_TOKEN || undefined, host = o.host || '127.0.0.1', port = Number(o.port || 20130);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('Invalid --port');
-  const server = createScanServer({ detector: { known: known?.items || [], ...(known ? { salt: known.salt } : {}) }, token, mode: ocrMode });
+  const server = createScanServer({ detector: detectorOptions(known), token, mode: ocrMode });
   await listen(server, host, port);
   console.error(`pii-guard serving on http://${host}:${port} (OCR mode ${ocrMode})`);
   await new Promise(() => {});

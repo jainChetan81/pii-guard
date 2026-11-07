@@ -45,13 +45,14 @@ export function isSupportedImage(data: Uint8Array): boolean {
 }
 
 function readTsv(tsv: string) {
-  const words = tsv.split("\n").slice(1).map(line => line.split("\t")).filter(row => row.length >= 12 && row[0] === "5" && row[11].trim());
+  const words = tsv.split("\n").slice(1).map(line => line.split("\t")).filter(row => row.length >= 12 && row[0] === "5" && row[11]?.trim());
   let previous = "", text = "", confidence = 0;
   for (const row of words) {
     const line = row.slice(1, 5).join("/");
     text += (text ? line === previous ? " " : "\n" : "") + row.slice(11).join("\t");
     previous = line;
-    confidence += Number.isFinite(+row[10]) ? Math.max(0, +row[10]) : 0;
+    const conf = Number(row[10]);
+    confidence += Number.isFinite(conf) ? Math.max(0, conf) : 0;
   }
   const meanConfidence = words.length ? Math.round(confidence / words.length) : 0;
   // ponytail: mean confidence below 60 flags review; use labeled documents to calibrate before enforcement.

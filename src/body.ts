@@ -33,8 +33,8 @@ function siblingContext(fields: [string, unknown][], except: number): string {
     parts.push(part);
     chars += separator.length + part.length;
   };
-  for (let i = 0; i < fields.length && chars < CONTEXT_CHARS; i++) {
-    const [key, value] = fields[i];
+  for (const [i, [key, value]] of fields.entries()) {
+    if (chars >= CONTEXT_CHARS) break;
     add(key);
     if (i !== except && typeof value === "string" && value.length <= SHORT_VALUE) add(value);
   }
@@ -59,6 +59,7 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
   const result: BodyScanResult = { findings: [], images: 0, imageBytes: 0, chars: 0, unscanned: { images: 0, files: 0, opaque: 0 } };
 
   // Returns the replacement for a string node; any other node is edited in place.
+  // ponytail: `any` because provider shapes vary; every field is type-checked where read. Swap to per-provider zod schemas if shapes stabilize.
   function walk(node: any, ctx: Context, path: string, depth = 0, scanContext?: string): any {
     if (depth > 100) throw Error("Request nesting limit exceeded");
     // Numbers are scanned as text but never rewritten, so the body keeps its types.

@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createDetector } from "../src/detector.ts";
+import { createDetector, type KnownCategory } from "../src/detector.ts";
 import { __resetOcrCacheForTests, createOcrWorker } from "../src/ocr.ts";
 import type { ImageInput, OcrResult } from "../src/ocr-contract.ts";
 
@@ -255,7 +255,7 @@ test("cache never crosses detector generations and unsafe labels are replaced", 
     const indexed = await b.scan({ ...image(46), path: "messages[9876543210].content[1]" });
     const spaced = await b.scan({ ...image(47), data: imageData(47).replace(/(.{7})/g, "$1\n") });
     await b.close();
-    const k = (category?: string) => createOcrWorker({ detector: { salt: "s", known: [{ name: "n", value: "AB12CD", ...(category && { category }) }] } });
+    const k = (category?: KnownCategory) => createOcrWorker({ detector: { salt: "s", known: [{ name: "n", value: "AB12CD", ...(category && { category }) }] } });
     const e = k(), f = k("id");
     expect((await e.scan(image(49))).cache).toBe("miss");
     expect((await f.scan(image(49))).cache).toBe("miss"); // category changes matching

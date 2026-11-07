@@ -1,15 +1,15 @@
-export { createDetector } from "./detector.ts";
+export { createDetector, KNOWN_CATEGORIES } from "./detector.ts";
 export { createOcrWorker } from "./ocr.ts";
 export { createCaptureStore, startSweeper } from "./capture.ts";
 export { replayImages, formatReport } from "./replay-images.ts";
 export { createScanServer, listen } from "./server.ts";
 export { scanBody } from "./body.ts";
 export { scanImage, scanFile, scanBodyWithOcr, ocrImage } from "./media.ts";
-export { scanOcrText, foldOcrText, OCR_MODES } from "./ocr-text.ts";
+export { scanOcrText, foldOcrText, OCR_MODES, isOcrMode } from "./ocr-text.ts";
 export { doctor } from "./doctor.ts";
 export { maskValue, preview } from "./preview.ts";
 export { RULES, GROUPS, verhoeff } from "./rules.ts";
-export type { Detector, DetectorOptions, Finding, KnownItem, RedactResult } from "./detector.ts";
+export type { Detector, DetectorOptions, Finding, KnownCategory, KnownItem, RedactResult } from "./detector.ts";
 export type { CaptureOptions, CaptureStore, ImageInput, OcrOptions, OcrReason, OcrResult, OcrStatus, OcrWorker, SafeHit } from "./ocr-contract.ts";
 export type { BodyEdit, BodyFinding, BodyScanResult } from "./body.ts";
 export type { ImagePreview, MediaScan } from "./media.ts";

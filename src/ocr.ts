@@ -84,16 +84,18 @@ export function __resetOcrCacheForTests(maxEntries = CACHE_MAX_ENTRIES): void {
 }
 
 function dimensions(data: Buffer): { width: number; height: number } | undefined {
+  // Every read below is length-checked first; byte() only satisfies the indexed-access check.
+  const byte = (i: number) => data[i] ?? 0;
   if (data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
     if (data.length >= 24 && data.toString("ascii", 12, 16) === "IHDR") return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
     return undefined;
   }
-  if (data[0] === 0xff && data[1] === 0xd8) {
+  if (byte(0) === 0xff && byte(1) === 0xd8) {
     let offset = 2;
     while (offset + 3 < data.length) {
-      if (data[offset] !== 0xff) return undefined;
-      while (data[offset] === 0xff) offset++;
-      const marker = data[offset++];
+      if (byte(offset) !== 0xff) return undefined;
+      while (byte(offset) === 0xff) offset++;
+      const marker = byte(offset++);
       if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
       if (marker === 0xd9 || marker === 0xda || offset + 1 >= data.length) return undefined;
       const length = data.readUInt16BE(offset);
@@ -109,17 +111,17 @@ function dimensions(data: Buffer): { width: number; height: number } | undefined
   const chunk = data.toString("ascii", 12, 16);
   if (chunk === "VP8X" && data.length >= 30) {
     return {
-      width: 1 + data[24] + (data[25] << 8) + (data[26] << 16),
-      height: 1 + data[27] + (data[28] << 8) + (data[29] << 16),
+      width: 1 + byte(24) + (byte(25) << 8) + (byte(26) << 16),
+      height: 1 + byte(27) + (byte(28) << 8) + (byte(29) << 16),
     };
   }
-  if (chunk === "VP8L" && data.length >= 25 && data[20] === 0x2f) {
+  if (chunk === "VP8L" && data.length >= 25 && byte(20) === 0x2f) {
     return {
-      width: 1 + data[21] + ((data[22] & 0x3f) << 8),
-      height: 1 + (data[22] >> 6) + (data[23] << 2) + ((data[24] & 0x0f) << 10),
+      width: 1 + byte(21) + ((byte(22) & 0x3f) << 8),
+      height: 1 + (byte(22) >> 6) + (byte(23) << 2) + ((byte(24) & 0x0f) << 10),
     };
   }
-  if (chunk === "VP8 " && data.length >= 30 && data[23] === 0x9d && data[24] === 0x01 && data[25] === 0x2a) {
+  if (chunk === "VP8 " && data.length >= 30 && byte(23) === 0x9d && byte(24) === 0x01 && byte(25) === 0x2a) {
     return { width: data.readUInt16LE(26) & 0x3fff, height: data.readUInt16LE(28) & 0x3fff };
   }
   return undefined;

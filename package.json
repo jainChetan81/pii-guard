@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "bun build src/index.ts --target=node --outfile dist/index.js",
-    "check": "tsc && bun test && bun run build",
+    "check": "tsc && knip && bun test && bun run build",
     "test": "bun test"
   },
   "license": "MIT",
@@ -18,6 +18,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
+    "knip": "6.44.2",
     "typescript": "^7.0.2"
   }
 }

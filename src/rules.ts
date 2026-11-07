@@ -8,7 +8,8 @@ const P = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,
 
 export function verhoeff(digits: string): boolean {
   let c = 0;
-  for (let i = 0; i < digits.length; i++) c = D[c][P[i % 8][+digits[digits.length - 1 - i]]];
+  // SAFETY: callers pass digits only, and D/P rows are complete 10-wide tables, so every index is in range.
+  for (let i = 0; i < digits.length; i++) c = D[c]![P[i % 8]![+digits[digits.length - 1 - i]!]!]!;
   return c === 0;
 }
 
@@ -19,7 +20,7 @@ function luhn(value: string): boolean {
   if (digits.length < 13 || digits.length > 19 || /^(.)\1+$/.test(digits)) return false;
   let sum = 0;
   for (let i = digits.length - 1, double = false; i >= 0; i--, double = !double) {
-    let digit = +digits[i];
+    let digit = Number(digits[i]);
     if (double) { digit *= 2; if (digit > 9) digit -= 9; }
     sum += digit;
   }
@@ -33,7 +34,7 @@ const EMAIL_IGNORE = /^(?:no-?reply|do-?not-?reply|git)@|@(?:[\w-]+\.)*example\.
 function publicIp(v: string): boolean {
   const o = v.split(".").map(Number);
   if (o.some(n => n > 255)) return false;
-  const [a, b, c, d] = o;
+  const [a = 0, b = 0, c = 0, d = 0] = o;
   if (d === 0 || d === 255) return false; // network or broadcast address, usually a CIDR or mask
   if (a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)) return false;
   if ((a === 192 && b === 0 && c === 2) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113)) return false;
@@ -43,7 +44,7 @@ function publicIp(v: string): boolean {
 function privateIp(v: string): boolean {
   const o = v.split(".").map(Number);
   if (o.some(n => n > 255)) return false;
-  const [a, b, , d] = o;
+  const [a = 0, b = 0, , d = 0] = o;
   // ponytail: .0/.255 skipped as CIDR/broadcast noise; misses rare x.y.z.0 hosts in a /16. Read the prefix length if that matters.
   if (d === 0 || d === 255) return false;
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);

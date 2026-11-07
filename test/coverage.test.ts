@@ -10,11 +10,11 @@ test("known short secrets, foreign phones, and formatted IDs", () => {
     { name: "numid", value: "234567890123", category: "id" },
   ], rules: [] });
   expect(d.scan("12345678901234").some((f) => f.name === "numid")).toBe(false);
-  expect(d.scan("id 2345 6789 0123")[0].name).toBe("numid");
-  expect(d.scan("1234")[0].name).toBe("pin");
-  expect(d.scan("+44 2079 460958")[0].name).toBe("foreign");
-  expect(d.scan("KA-01-AB-1234")[0].name).toBe("plate");
-  expect(d.scan("prefixKA01AB1234suffix")[0].name).toBe("plate");
+  expect(d.scan("id 2345 6789 0123")[0]!.name).toBe("numid");
+  expect(d.scan("1234")[0]!.name).toBe("pin");
+  expect(d.scan("+44 2079 460958")[0]!.name).toBe("foreign");
+  expect(d.scan("KA-01-AB-1234")[0]!.name).toBe("plate");
+  expect(d.scan("prefixKA01AB1234suffix")[0]!.name).toBe("plate");
 });
 
 test("redaction covers whole overlapping spans", () => {
@@ -30,8 +30,8 @@ test("exact configured identity wins over a formatted alias", () => {
   ];
   const d = createDetector({ known, rules: [] });
   for (const item of known) {
-    expect(d.scan(item.value)[0].name).toBe(item.name);
-    expect(d.scan(item.value)[0].hash).toBe(d.hash(item.value));
+    expect(d.scan(item.value)[0]!.name).toBe(item.name);
+    expect(d.scan(item.value)[0]!.hash).toBe(d.hash(item.value));
   }
 });
 
@@ -113,7 +113,7 @@ test("India document rules and common PII reject nearby lookalikes", () => {
     ["Driving licence: KA0120201234567", "driving_license_in"],
     ["card: 4111 1111 1111 1111", "credit_card"],
     ["contact: demo@example.test", "email"],
-  ]) expect(d.scan(text).some(f => f.rule === rule)).toBe(true);
+  ] as const) expect(d.scan(text).some(f => f.rule === rule)).toBe(true);
   for (const text of ["KA01AB1234", "id 4111111111111111", "card: 4111111111111112", "registration XX01AB1234"])
     expect(d.scan(text)).toHaveLength(0);
 });
