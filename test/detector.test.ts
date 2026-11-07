@@ -37,6 +37,11 @@ describe("own list", () => {
   test("phone does not match inside a longer number", () => {
     expect(d.scan("ts 19876543210123")).toEqual([]);
   });
+  test("short vault value matches only as its own token", () => {
+    const s = createDetector({ known: [{ name: "pin", value: "a1f" }] });
+    expect(s.scan("id ctco_01a1b651-ca1f-7f63")).toEqual([]);
+    expect(s.scan("pin: a1f.").map((f) => f.name)).toEqual(["pin"]);
+  });
   test("own-list beats pattern on same span", () => {
     const f = d.scan(`OPENROUTER_API_KEY=${SECRET}`);
     expect(f).toHaveLength(1);

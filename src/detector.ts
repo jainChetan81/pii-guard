@@ -22,6 +22,9 @@ function knownPattern(value: string, category?: string): string {
     return `(?<![\\d+])(?:${esc(value)}|${prefix}${core.split("").join("[ \\t-]*")})(?!\\d)`;
   }
   if (/^\d+$/.test(value)) return `(?<!\\d)${esc(value)}(?!\\d)`;
+  // Short values (PINs, 3-6 char passwords) match inside IDs and hashes; require token edges.
+  // ponytail: below 8 chars only; longer vault values still match inside tokens on purpose.
+  if (value.length < 8) return `${/^\w/.test(value) ? "(?<![A-Za-z0-9])" : ""}${esc(value)}${/\w$/.test(value) ? "(?![A-Za-z0-9])" : ""}`;
   return esc(value);
 }
 
