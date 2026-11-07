@@ -200,7 +200,7 @@ async function replay() {
   if (selected.some(s => !['claude','codex','t3','9router'].includes(s))) throw Error('Invalid source');
   if (o.stdin && !o.label) throw Error('--stdin requires --label');
   type KeyStats = { kind: string; hits: number; hashes: Set<string>; sources: Map<string, number>; contexts: Map<string, number> };
-  const newStats = (name: string) => ({ name, files: 0, rows: 0, skipped: 0, undated: 0, chars: 0, errors: 0, scanErrors: 0, images: 0, bytes: 0, unscannedImages: 0, unscannedFiles: 0, opaque: 0, ocr: { scanned: 0, partial: 0, empty: 0, failed: 0, skipped: 0 } as Record<string, number>, keys: new Map<string, KeyStats>() });
+  const newStats = (name: string) => ({ name, files: 0, rows: 0, skipped: 0, undated: 0, chars: 0, errors: 0, scanErrors: 0, images: 0, bytes: 0, unscannedImages: 0, unscannedFiles: 0, opaque: 0, ocr: new Map<string, number>(), keys: new Map<string, KeyStats>() });
   type Stats = ReturnType<typeof newStats>;
   const reports: Stats[] = [], seen = new Set<string>();
   function aggregate(name: string) { const stats = newStats(name); reports.push(stats); return stats; }
@@ -219,7 +219,7 @@ async function replay() {
     catch { stats.scanErrors++; return; }
     stats.rows++; stats.chars += r.chars; stats.images += r.images; stats.bytes += r.imageBytes;
     stats.unscannedImages += r.unscanned.images; stats.unscannedFiles += r.unscanned.files; stats.opaque += r.unscanned.opaque;
-    if (r.ocr) for (const [key, count] of Object.entries(r.ocr)) stats.ocr[key] = (stats.ocr[key] ?? 0) + count;
+    if (r.ocr) for (const [key, count] of Object.entries(r.ocr)) inc(stats.ocr, key, count);
     for (const f of r.findings) {
       const key = f.name || f.rule; if (f.name) seen.add(f.hash);
       if (!stats.keys.has(key)) stats.keys.set(key, { kind: categories.get(key) || f.kind, hits: 0, hashes: new Set(), sources: new Map(), contexts: new Map() });
@@ -253,7 +253,7 @@ async function replay() {
     out.push(`## ${label(s.name)}`, '', `Files: ${s.files}; rows: ${s.rows}; skipped by --since: ${s.skipped}; undated: ${s.undated}; chars: ${s.chars}; parse errors: ${s.errors}; images: ${s.images}; image bytes: ${s.bytes}`, '', '| Key | Category/kind | Hits | Distinct hashes | Top sources |', '| --- | --- | ---: | ---: | --- |');
     for (const [key, k] of s.keys) { out.push(`| ${label(key)} | ${label(k.kind)} | ${k.hits} | ${k.hashes.size} | ${top(k.sources,3)} |`); if (o.context) out.push(`| Context | - | - | - | ${top(k.contexts,5)} |`); }
     out.push('', `Unscanned images: ${s.unscannedImages}; unscanned file/audio blocks: ${s.unscannedFiles}; opaque signed/encrypted fields: ${s.opaque}; scan errors: ${s.scanErrors}.`, '');
-    if (o.ocr) out.push(`OCR: scanned ${s.ocr.scanned}; partial ${s.ocr.partial}; empty ${s.ocr.empty}; failed ${s.ocr.failed}; skipped ${s.ocr.skipped}.`, '');
+    if (o.ocr) out.push(`OCR: ${['scanned', 'partial', 'empty', 'failed', 'skipped'].map(k => `${k} ${s.ocr.get(k) ?? 0}`).join('; ')}.`, '');
     if (s.scanErrors || s.errors) process.exitCode = 2;
     if (o.ocr && (s.unscannedImages || s.unscannedFiles || s.opaque)) process.exitCode = 2;
   }

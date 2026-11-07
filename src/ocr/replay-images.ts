@@ -32,11 +32,12 @@ export async function replayImages(opts: { folder: string; detector: Detector; l
     report.statusCounts[result.status] = (report.statusCounts[result.status] || 0) + 1;
     if (result.findings.length) report.imagesWithHits++;
     for (const hit of result.findings) report.perRule[hit.rule] = (report.perRule[hit.rule] || 0) + 1;
-    if (opts.labels) {
+    const labels = opts.labels;
+    if (labels) {
       const remaining = [...result.findings];
       // Match specific hashes first, then rule-only labels.
       // Labels key by sha256 or by file name; reports never include either.
-      const own = (k: string) => Object.hasOwn(opts.labels!, k) ? opts.labels![k] : undefined;
+      const own = (k: string) => Object.hasOwn(labels, k) ? labels[k] : undefined;
       const expected = (own(hash) || own(entry.name) || []).map(l => typeof l === "string" ? { rule: l } : l).sort((a, b) => Number(!!b.hash) - Number(!!a.hash));
       for (const label of expected) {
         const index = remaining.findIndex(hit => hit.rule === label.rule && (!label.hash || hit.hash === label.hash));

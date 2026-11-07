@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDetector } from "../src/detector.ts";
-import { replayImages, formatReport } from "../src/ocr/replay-images.ts";
+import { createDetector } from "../../src/detector.ts";
+import { replayImages, formatReport } from "../../src/ocr/replay-images.ts";
 
 test("replay computes labeled and unlabeled metrics without exposing content", async () => {
   const root = await mkdtemp(join(tmpdir(), "replay-test-")), folder = join(root, "images"), bin = join(root, "bin");

@@ -59,7 +59,7 @@ export function createScanServer(options: ScanServerOptions): Server {
       }
       if (req.url === "/scan") {
         let body: unknown;
-        try { body = (JSON.parse((await read(req, MAX_BODY)).toString("utf8")) as { body?: unknown })?.body; } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(400, "invalid_json"); }
+        try { const parsed: unknown = JSON.parse((await read(req, MAX_BODY)).toString("utf8")); body = parsed && typeof parsed === "object" && "body" in parsed ? parsed.body : undefined; } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(400, "invalid_json"); }
         if (body === undefined) throw new HttpError(400, "missing_body");
         const images: ImageInput[] = [];
         const text = scanBody(body, detector, image => images.push(image));

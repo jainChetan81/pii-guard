@@ -187,8 +187,9 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
   const generation = `${mode}:${cacheScope(options.detector, detector.hash)}`;
   const key = (sha: string) => `${generation}:${sha}`;
   const captureStore = options.capture ? deps.captureStore || createCaptureStore(options.capture) : undefined;
-  const stopSweeper = options.capture && captureStore && !deps.captureStore ? startSweeper(captureStore, 60 * 60 * 1000) : undefined;
-  if (stopSweeper) void captureStore!.sweep();
+  const ownsStore = options.capture && captureStore && !deps.captureStore ? captureStore : undefined;
+  const stopSweeper = ownsStore ? startSweeper(ownsStore, 60 * 60 * 1000) : undefined;
+  if (ownsStore) void ownsStore.sweep();
   const queue: Work[] = [];
   const works = new Set<Work>();
   const inFlight = new Map<string, Work>();
@@ -342,7 +343,7 @@ export function createOcrWorker(options: OcrOptions, deps: { captureStore?: Capt
       }
       sub.data = "";
       // WebCrypto digests off the main thread.
-      const sha = Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>)).toString("hex");
+      const sha = Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer> /* SAFETY: Buffer.concat allocates an ArrayBuffer, never a SharedArrayBuffer. */)).toString("hex");
       if (sub.completed || closed) return;
       sub.sha = sha;
       const cached = getCached(key(sha));

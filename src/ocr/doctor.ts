@@ -25,7 +25,7 @@ export function doctor(): DoctorReport {
   const tools = TOOLS.map(([name, args, neededFor, install]) => ({ name, ...probe(name, args), neededFor, install }));
   const langs = spawnSync(ocrBin("tesseract"), ["--list-langs"], { encoding: "utf8", timeout: 5000 });
   const languages = langs.error ? [] : `${langs.stdout}`.split("\n").slice(1).map(l => l.trim()).filter(Boolean);
-  const has = (n: string) => tools.find(t => t.name === n)!.found;
+  const has = (n: string) => tools.some(t => t.name === n && t.found);
   const basic = has("tesseract") && languages.includes("eng");
   return { tools, languages, modes: { basic, enhanced: basic && has("ffmpeg") }, pdf: basic && has("pdfinfo") && has("pdftotext") && has("pdftoppm") };
 }

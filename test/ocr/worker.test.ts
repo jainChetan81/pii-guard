@@ -3,13 +3,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createDetector, type KnownCategory } from "../src/detector.ts";
-import { __resetOcrCacheForTests, createOcrWorker } from "../src/ocr/worker.ts";
-import type { ImageInput, OcrResult } from "../src/ocr/contract.ts";
+import type { KnownCategory } from "../../src/detector.ts";
+import { __resetOcrCacheForTests, createOcrWorker } from "../../src/ocr/worker.ts";
+import type { ImageInput } from "../../src/ocr/contract.ts";
 
 const header = "level\tpage\tblock\tpar\tline\tword\tleft\ttop\twidth\theight\tconf\ttext\n";
 const tsv = `${header}5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t95\tDavid Johnson\n`;
-const detector = () => createDetector({ salt: "worker-test-salt", known: [{ name: "sample.person", value: "David Johnson" }] });
 const imageData = (id: number, width = 100, height = 100) => {
   const data = Buffer.alloc(33);
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(data);
@@ -229,7 +228,7 @@ test("event loop timer fires while tesseract runs", async () => {
 const tesseract = process.env.PII_GUARD_OCR_BIN_DIR ? join(process.env.PII_GUARD_OCR_BIN_DIR, "tesseract") : "tesseract";
 const hasOcr = spawnSync(tesseract, ["--version"], { stdio: "ignore" }).status === 0;
 test.skipIf(!hasOcr)("real tesseract scans the public fixture", async () => {
-  const data = readFileSync(join(import.meta.dir, "fixtures/presidio-ocr.png"));
+  const data = readFileSync(join(import.meta.dir, "../fixtures/presidio-ocr.png"));
   const w = createOcrWorker({ detector: {
     salt: "real-ocr-test",
     known: [
