@@ -11,8 +11,13 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function knownPattern(value: string, category?: KnownCategory): string {
   if (category === "id" && /^[A-Z0-9 -]{6,30}$/.test(value)) {
     // Digit-only IDs keep digit boundaries so they never match inside a longer number.
-    if (/^[\d -]+$/.test(value)) return `(?<!\\d)(?:${esc(value)}|${value.replace(/[ -]/g, "").split("").join("[ \\t-]*")})(?!\\d)`;
-    return `${esc(value)}|(?<![A-Za-z0-9])${value.replace(/[ -]/g, "").split("").map(esc).join("[ \\t-]*")}(?![A-Za-z0-9])`;
+    if (/^[\d -]+$/.test(value)) {
+      const boundary = value.length < 8 ? "[\\p{L}\\p{N}_]" : "\\d";
+      return `(?<!${boundary})(?:${esc(value)}|${value.replace(/[ -]/g, "").split("").join("[ \\t-]*")})(?!${boundary})`;
+    }
+    const formatted = value.replace(/[ -]/g, "").split("").map(esc).join("[ \\t-]*");
+    if (value.length < 8) return `(?<![\\p{L}\\p{N}_])${esc(value)}(?![\\p{L}\\p{N}_])|(?<![\\p{L}\\p{N}_])${formatted}(?![\\p{L}\\p{N}_])`;
+    return `${esc(value)}|(?<![A-Za-z0-9])${formatted}(?![A-Za-z0-9])`;
   }
   const digits = value.replace(/[\s-]/g, "");
   if (/^\+?\d{10,19}$/.test(digits)) {
@@ -21,10 +26,13 @@ function knownPattern(value: string, category?: KnownCategory): string {
     const prefix = /^[6-9]\d{9}$/.test(core) ? "(?:(?:\\+?91|0)[ \\t-]*)?" : "(?:\\+[ \\t-]*)?";
     return `(?<![\\d+])(?:${esc(value)}|${prefix}${core.split("").join("[ \\t-]*")})(?!\\d)`;
   }
-  if (/^\d+$/.test(value)) return `(?<!\\d)${esc(value)}(?!\\d)`;
+  if (/^\d+$/.test(value)) {
+    const boundary = value.length < 8 ? "[\\p{L}\\p{N}_]" : "\\d";
+    return `(?<!${boundary})${esc(value)}(?!${boundary})`;
+  }
   // Short values (PINs, 3-6 char passwords) match inside IDs and hashes; require token edges.
   // ponytail: below 8 chars only; longer vault values still match inside tokens on purpose.
-  if (value.length < 8) return `${/^\w/.test(value) ? "(?<![A-Za-z0-9])" : ""}${esc(value)}${/\w$/.test(value) ? "(?![A-Za-z0-9])" : ""}`;
+  if (value.length < 8) return `(?<![\\p{L}\\p{N}_])${esc(value)}(?![\\p{L}\\p{N}_])`;
   return esc(value);
 }
 
@@ -80,7 +88,7 @@ export function createDetector({ known = [], salt = randomBytes(16), rules = RUL
   // Longest first so a value that contains another value wins.
   const entries = [...byValue].sort((a, b) => b[0].length - a[0].length);
   const knownRe = entries.length
-    ? new RegExp(entries.map(([v, k], i) => `(?<k${i}>${knownPattern(v, k.category)})`).join("|"), "g")
+    ? new RegExp(entries.map(([v, k], i) => `(?<k${i}>${knownPattern(v, k.category)})`).join("|"), "gu")
     : null;
 
   function scan(text: string, context?: string): Finding[] {

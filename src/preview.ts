@@ -37,7 +37,8 @@ function maskSpan(text: string, from: number, to: number, findings: Finding[]): 
 export function preview(text: string, f: Finding, all: Finding[]): { preview: string; context: string } {
   const from = Math.max(0, f.start - CONTEXT), to = Math.min(text.length, f.end + CONTEXT);
   const others = all.filter(o => o !== f);
-  const masked = maskValue(text.slice(f.start, f.end), f.rule, f.kind);
+  const overlaps = others.some(o => o.start < f.end && o.end > f.start);
+  const masked = overlaps ? DOTS : maskValue(text.slice(f.start, f.end), f.rule, f.kind);
   const context = `${from ? "…" : ""}${maskSpan(text, from, f.start, others)}${masked}${maskSpan(text, f.end, to, others)}${to < text.length ? "…" : ""}`;
   return { preview: masked, context };
 }

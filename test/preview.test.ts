@@ -38,6 +38,20 @@ test("passwords, emails and short values show no raw part", () => {
   expect(maskValueShort("AB12CD")).toBe("•••••");
 });
 
+test("overlapping findings never leak known values in preview or context", () => {
+  const knownValue = "private-domain.test";
+  const d = createDetector({ known: [{ name: "domain", value: knownValue }] });
+  const text = `user@${knownValue}`;
+  const all = d.scan(text);
+  expect(all.some(f => f.rule === "email")).toBe(true);
+  expect(all.some(f => f.rule === "known")).toBe(true);
+  for (const f of all) {
+    const result = preview(text, f, all);
+    expect(result.preview).not.toContain(knownValue);
+    expect(result.context).not.toContain(knownValue);
+  }
+});
+
 test("maskText masks every finding and merges overlaps", () => {
   const pan = ["ABCPE", "1234", "F"].join("");
   const d = createDetector({ known: [{ name: "frag", value: "PE1234F" }] });
