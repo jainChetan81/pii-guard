@@ -42,6 +42,14 @@ describe("own list", () => {
     expect(s.scan("id ctco_01a1b651-ca1f-7f63")).toEqual([]);
     expect(s.scan("pin: a1f.").map((f) => f.name)).toEqual(["pin"]);
   });
+  test("short values use Unicode letter, digit, and underscore boundaries", () => {
+    const pin = createDetector({ known: [{ name: "pin", value: "909" }] });
+    for (const text of ["abc909def", "x_909_", "é909界"]) expect(pin.scan(text)).toEqual([]);
+    for (const text of ["909!", "(909)", " 909 "]) expect(pin.scan(text).map(f => f.name)).toEqual(["pin"]);
+    const id = createDetector({ known: [{ name: "id", value: "ABC123", category: "id" }] });
+    for (const text of ["xABC123y", "_ABC123_", "éABC123界"]) expect(id.scan(text)).toEqual([]);
+    for (const text of ["ABC123!", " ABC123 "]) expect(id.scan(text).map(f => f.name)).toEqual(["id"]);
+  });
   test("own-list beats pattern on same span", () => {
     const f = d.scan(`OPENROUTER_API_KEY=${SECRET}`);
     expect(f).toHaveLength(1);
