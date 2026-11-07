@@ -3,6 +3,7 @@ const FAKE = ["Xk82", "mPq0vL"].join("");
 import { expect, test } from "bun:test";
 import { createDetector } from "../src/detector.ts";
 import { RULES, GROUPS } from "../src/rules.ts";
+import { maskText } from "../src/preview.ts";
 
 const d = createDetector();
 const rules = (s: string) => d.scan(s).map(f => f.rule);
@@ -52,6 +53,26 @@ test("IP addresses separate public and private ranges", () => {
 test("assigned secret inside env-style names", () => {
   for (const s of [`token=${FAKE}Secret!`, `DB_PASSWORD=${FAKE}`, `STRIPE_SECRET=${FAKE}`, `MY_API_KEY: ${FAKE}`]) expect(rules(s)).toEqual(["assigned_secret"]);
   expect(rules(`compassword=${FAKE}`)).toEqual([]);
+});
+
+test("PAN detects canonical, lowercase, and spaced forms only with valid holder", () => {
+  expect(rules("ABCPE1234F")).toEqual(["pan"]);
+  expect(rules("abcpe1234f")).toEqual(["pan"]);
+  expect(rules("ABCPE 1234 F")).toEqual(["pan"]);
+  expect(rules("ABCXE1234F")).toEqual([]);
+});
+
+test("private key masks complete and truncated PEM blocks", () => {
+  const payload = ["syntheticPayloadLine1", "syntheticPayloadLine2"].join("\n");
+  const pem = `-----BEGIN PRIVATE KEY-----\n${payload}\n-----END PRIVATE KEY-----`;
+  const out = maskText(pem, d.scan(pem));
+  expect(out).not.toContain("syntheticPayloadLine1");
+  expect(out).not.toContain("-----END PRIVATE KEY-----");
+  expect(d.scan(out)).toEqual([]);
+  const truncated = `-----BEGIN PRIVATE KEY-----\n${payload}`;
+  const truncatedOut = maskText(truncated, d.scan(truncated));
+  expect(truncatedOut).not.toContain(payload);
+  expect(d.scan(truncatedOut)).toEqual([]);
 });
 
 test("reserved-domain emails and placeholder secrets are ignored", () => {
