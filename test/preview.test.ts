@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createDetector } from "../src/detector.ts";
-import { maskValue, preview } from "../src/preview.ts";
+import { maskText, maskValue, preview } from "../src/preview.ts";
 const maskValueShort = (v: string) => maskValue(v, "pan", "pii");
 
 test("preview and context never carry raw values or digits", () => {
@@ -36,4 +36,16 @@ test("passwords, emails and short values show no raw part", () => {
   for (const raw of [pw, "correct", "ery", "ananya", "sharma"]) expect(joined).not.toContain(raw);
   expect(masks.map(m => m.preview)).toContain("•••••@corpmail.in");
   expect(maskValueShort("AB12CD")).toBe("•••••");
+});
+
+test("maskText masks every finding and merges overlaps", () => {
+  const pan = ["ABCPE", "1234", "F"].join("");
+  const d = createDetector({ known: [{ name: "frag", value: "PE1234F" }] });
+  const text = `Repeat this: PAN ${pan}, mail priya.sharma@corpmail.in end`;
+  const out = maskText(text, d.scan(text));
+  expect(out).toStartWith("Repeat this: PAN ");
+  expect(out).toEndWith(" end");
+  expect(out).toContain("•••••@corpmail.in");
+  for (const raw of [pan, "PE1234F", "priya.sharma"]) expect(out).not.toContain(raw);
+  expect(d.scan(out)).toEqual([]);
 });

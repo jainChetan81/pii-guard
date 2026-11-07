@@ -41,3 +41,22 @@ export function preview(text: string, f: Finding, all: Finding[]): { preview: st
   const context = `${from ? "…" : ""}${maskSpan(text, from, f.start, others)}${masked}${maskSpan(text, f.end, to, others)}${to < text.length ? "…" : ""}`;
   return { preview: masked, context };
 }
+
+/** Whole text with every finding masked; overlapping findings merge into one masked span.
+ *  Digits stay (prompts are for reading); only detected spans change. Never returns raw finding text. */
+export function maskText(text: string, findings: Finding[]): string {
+  const spans = findings.filter(f => f.start >= 0 && f.end <= text.length && f.start < f.end).sort((a, b) => a.start - b.start);
+  // Merge overlaps into groups; a group of one keeps its preview, a merged group is fully masked.
+  const groups: { start: number; end: number; first: Finding; n: number }[] = [];
+  for (const f of spans) {
+    const last = groups.at(-1);
+    if (last && f.start < last.end) { last.end = Math.max(last.end, f.end); last.n++; }
+    else groups.push({ start: f.start, end: f.end, first: f, n: 1 });
+  }
+  let out = "", at = 0;
+  for (const g of groups) {
+    out += text.slice(at, g.start) + (g.n === 1 ? maskValue(text.slice(g.start, g.end), g.first.rule, g.first.kind) : DOTS);
+    at = g.end;
+  }
+  return out + text.slice(at);
+}
