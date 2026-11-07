@@ -58,6 +58,7 @@ function stamp(v: unknown) {
   return typeof v === 'string' ? Date.parse(v) : NaN;
 }
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const rec = (v: unknown): Record<string, unknown> => isRecord(v) ? v : {};
 function rowStamp(v: unknown) {
   if (!isRecord(v)) return NaN;
   for (const key of ['timestamp', 'ts', 'createdAt']) {
@@ -104,8 +105,7 @@ function exportKnown() {
     }
     tokens(text).forEach((value, i) => add(`${name}.token-${i + 1}`, value));
   }
-  // ponytail: untrusted Bitwarden JSON stays `any`; each field is type-checked where read. Add a zod schema if more item types are parsed.
-  let bw: any[] = [];
+  let bw: unknown = [];
   if (o['bw-json']) bw = JSON.parse(readFileSync(o['bw-json'], 'utf8'));
   else if (!o['from-text']?.length || o.folder || o.collection || o.org) {
     const a = ['list', 'items'];
@@ -116,28 +116,29 @@ function exportKnown() {
   }
   if (!Array.isArray(bw)) throw Error('Invalid Bitwarden export');
   for (const item of bw) {
-    if (!item || typeof item !== 'object') continue;
+    if (!isRecord(item)) continue;
+    const login = rec(item.login), identity = rec(item.identity);
     const slug = String(item.name || 'item').toLowerCase().match(/[a-z0-9]+/g)?.join('-') || 'item';
     const put = (field: string, value: unknown, category: KnownCategory = 'secret', minimum?: number) => add(`${slug}.${field}`, value, category, minimum);
     if (item.type === 1) {
-      put('password', item.login?.password, 'secret', 1);
-      let totp = item.login?.totp;
+      put('password', login.password, 'secret', 1);
+      let totp = login.totp;
       if (typeof totp === 'string' && /^otpauth:\/\//i.test(totp)) { try { totp = new URL(totp).searchParams.get('secret'); } catch { totp = null; } }
       put('totp', totp);
-      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.login?.username || '')) put('username', item.login.username, 'contact');
+      if (typeof login.username === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(login.username)) put('username', login.username, 'contact');
     }
-    if (item.type === 3) { put('number', item.card?.number); }
+    if (item.type === 3) { put('number', rec(item.card).number); }
     if (item.type === 4) {
-      for (const f of ['ssn', 'passportNumber', 'licenseNumber']) put(f, item.identity?.[f], 'id');
-      for (const f of ['phone', 'email', 'address1']) put(f, item.identity?.[f], 'contact', f === 'phone' ? 6 : 8);
+      for (const f of ['ssn', 'passportNumber', 'licenseNumber']) put(f, identity[f], 'id');
+      for (const f of ['phone', 'email', 'address1']) put(f, identity[f], 'contact', f === 'phone' ? 6 : 8);
     }
-    if (item.type === 5) put('privateKey', item.sshKey?.privateKey);
-    for (const [i, field] of (Array.isArray(item.fields) ? item.fields : []).entries()) {
-      const name = `field-${i + 1}`;
-      if (field?.type === 1) put(name, field.value, 'secret', 1);
-      else if (field?.type === 0 && /(?:plate|vehicle|registration|reg(?:\s|_)?no|\bid\b|passport|licen[cs]e|ssn|tax|\bpan\b|aadhaar|aadhar)/i.test(field.name || '')) put(name, field.value, 'id', 1);
-      else if (field?.type === 0 && secretLike(field.value)) put(name, field.value, 'secret');
-      else if (field?.type === 0 && typeof field.value === 'string' && /^(?=.*\d)[A-Za-z0-9][A-Za-z0-9 ._/#:-]{3,}$/.test(field.value)) put(name, field.value, 'id', 1);
+    if (item.type === 5) put('privateKey', rec(item.sshKey).privateKey);
+    for (const [i, raw] of (Array.isArray(item.fields) ? item.fields : []).entries()) {
+      const name = `field-${i + 1}`, field = rec(raw);
+      if (field.type === 1) put(name, field.value, 'secret', 1);
+      else if (field.type === 0 && /(?:plate|vehicle|registration|reg(?:\s|_)?no|\bid\b|passport|licen[cs]e|ssn|tax|\bpan\b|aadhaar|aadhar)/i.test(typeof field.name === 'string' ? field.name : '')) put(name, field.value, 'id', 1);
+      else if (field.type === 0 && secretLike(field.value)) put(name, field.value, 'secret');
+      else if (field.type === 0 && typeof field.value === 'string' && /^(?=.*\d)[A-Za-z0-9][A-Za-z0-9 ._/#:-]{3,}$/.test(field.value)) put(name, field.value, 'id', 1);
     }
     addText(`${slug}.notes`, item.notes, typeof item.name === 'string' ? item.name : '');
   }
