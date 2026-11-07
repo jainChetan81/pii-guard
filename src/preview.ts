@@ -3,9 +3,20 @@ import type { Finding } from "./detector.ts";
 const DOTS = "•••••";
 const CONTEXT = 20;
 
-/** Masked value: a few edge chars plus a fixed-length mask, so length is not leaked. Vault values show nothing. */
-export function maskValue(value: string, rule?: string): string {
-  if (rule === "known" || value.length < 6) return DOTS;
+// Public key prefixes that name the provider, not the secret.
+const KEY_PREFIX = /^(?:sk-ant-|sk-or-v1-|sk-proj-|sk-svcacct-|sk-|gh[pousr]_|github_pat_|AKIA|ASIA|ABIA|ACCA|xox[abps]-|AIza)/;
+
+/** Masked value; the mask length is fixed, so the value length is not leaked.
+ *  Vault values and short values: nothing. Secrets: provider prefix and last 3 of a long key only.
+ *  Emails: domain only. Other PII: 2 + 1 edge chars (6 + 3 from 16 chars). */
+export function maskValue(value: string, rule?: string, kind?: string): string {
+  if (rule === "known" || value.length < 8) return DOTS;
+  if (kind === "secret") {
+    const prefix = value.match(KEY_PREFIX)?.[0] || "";
+    return prefix && value.length >= 24 ? prefix + DOTS + value.slice(-3) : prefix + DOTS;
+  }
+  const at = value.lastIndexOf("@");
+  if (rule?.startsWith("email") && at > 0) return DOTS + value.slice(at);
   const [head, tail] = value.length >= 16 ? [6, 3] : [2, 1];
   return value.slice(0, head) + DOTS + value.slice(-tail);
 }
@@ -26,7 +37,7 @@ function maskSpan(text: string, from: number, to: number, findings: Finding[]): 
 export function preview(text: string, f: Finding, all: Finding[]): { preview: string; context: string } {
   const from = Math.max(0, f.start - CONTEXT), to = Math.min(text.length, f.end + CONTEXT);
   const others = all.filter(o => o !== f);
-  const masked = maskValue(text.slice(f.start, f.end), f.rule);
+  const masked = maskValue(text.slice(f.start, f.end), f.rule, f.kind);
   const context = `${from ? "…" : ""}${maskSpan(text, from, f.start, others)}${masked}${maskSpan(text, f.end, to, others)}${to < text.length ? "…" : ""}`;
   return { preview: masked, context };
 }
