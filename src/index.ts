@@ -7,7 +7,7 @@ export { scanBody } from "./body.ts";
 export { scanImage, scanFile, scanBodyWithOcr, ocrImage } from "./ocr/media.ts";
 export { scanOcrText, foldOcrText, OCR_MODES, isOcrMode } from "./ocr/text.ts";
 export { doctor } from "./ocr/doctor.ts";
-export { maskValue, preview } from "./preview.ts";
+export { maskValue, maskText, preview } from "./preview.ts";
 export { RULES, GROUPS, verhoeff } from "./rules.ts";
 export type { Detector, DetectorOptions, Finding, KnownCategory, KnownItem, RedactResult } from "./detector.ts";
 export type { CaptureOptions, CaptureStore, ImageInput, OcrOptions, OcrReason, OcrResult, OcrStatus, OcrWorker, SafeHit } from "./ocr/contract.ts";
