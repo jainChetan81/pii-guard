@@ -4,8 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDetector, type KnownCategory } from "../src/detector.ts";
-import { __resetOcrCacheForTests, createOcrWorker } from "../src/ocr.ts";
-import type { ImageInput, OcrResult } from "../src/ocr-contract.ts";
+import { __resetOcrCacheForTests, createOcrWorker } from "../src/ocr/worker.ts";
+import type { ImageInput, OcrResult } from "../src/ocr/contract.ts";
 
 const header = "level\tpage\tblock\tpar\tline\tword\tleft\ttop\twidth\theight\tconf\ttext\n";
 const tsv = `${header}5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t95\tDavid Johnson\n`;

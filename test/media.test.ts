@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { createDetector } from "../src/detector.ts";
-import { ocrImage, scanBodyWithOcr, scanFile, scanImage } from "../src/media.ts";
+import { ocrImage, scanBodyWithOcr, scanFile, scanImage } from "../src/ocr/media.ts";
 
 const binary = (name: string) => process.env.PII_GUARD_OCR_BIN_DIR ? join(process.env.PII_GUARD_OCR_BIN_DIR, name) : name;
 const hasOcr = spawnSync(binary("tesseract"), ["--version"]).status === 0;

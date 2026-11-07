@@ -4,9 +4,9 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { scanBody, type ImageInput } from "./body.ts";
-import type { Detector, Finding } from "./detector.ts";
-import { scanOcrText, type OcrMode } from "./ocr-text.ts";
+import { scanBody, type ImageInput } from "../body.ts";
+import type { Detector, Finding } from "../detector.ts";
+import { scanOcrText, type OcrMode } from "./text.ts";
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const MAX_PAGES = 10;

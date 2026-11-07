@@ -1,7 +1,7 @@
 // Shared OCR contract. WP1 (worker), WP2 (capture/replay), WP3 (HTTP/CLI), WP4 (9Router) build against this.
-import type { DetectorOptions, Finding } from "./detector.ts";
-import type { ImageInput } from "./body.ts";
-import type { OcrMode } from "./ocr-text.ts";
+import type { DetectorOptions, Finding } from "../detector.ts";
+import type { ImageInput } from "../body.ts";
+import type { OcrMode } from "./text.ts";
 
 export type { ImageInput, OcrMode };
 export type OcrStatus = "scanned" | "partial" | "empty" | "failed" | "skipped";

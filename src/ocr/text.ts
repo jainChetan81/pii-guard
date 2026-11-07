@@ -1,7 +1,7 @@
 // Enhanced OCR text scanning. OCR breaks secrets in predictable ways: unicode dashes,
 // spaces around punctuation, a token split by a space, and O/0 or l/1 swaps next to digits.
 // Each repair is a separate scan variant; variants only add findings, never remove them.
-import type { Detector, Finding } from "./detector.ts";
+import type { Detector, Finding } from "../detector.ts";
 
 export type OcrMode = "basic" | "enhanced";
 export const OCR_MODES: readonly OcrMode[] = ["basic", "enhanced"];

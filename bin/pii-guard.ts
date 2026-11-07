@@ -9,11 +9,11 @@ import { parseArgs } from 'node:util';
 import { createDetector, KNOWN_CATEGORIES, type KnownCategory, type KnownItem } from '../src/detector.ts';
 import { scanBody, type BodyScanResult } from '../src/body.ts';
 import type { Detector } from '../src/detector.ts';
-import { scanFile, scanBodyWithOcr } from '../src/media.ts';
-import { replayImages, formatReport } from '../src/replay-images.ts';
+import { scanFile, scanBodyWithOcr } from '../src/ocr/media.ts';
+import { replayImages, formatReport } from '../src/ocr/replay-images.ts';
 import { createScanServer, listen } from '../src/server.ts';
-import { isOcrMode } from '../src/ocr-text.ts';
-import { doctor } from '../src/doctor.ts';
+import { isOcrMode } from '../src/ocr/text.ts';
+import { doctor } from '../src/ocr/doctor.ts';
 
 const opts = {
   'bw-json': { type: 'string' }, 'from-text': { type: 'string', multiple: true }, out: { type: 'string' }, folder: { type: 'string' },

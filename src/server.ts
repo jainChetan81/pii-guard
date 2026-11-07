@@ -4,8 +4,8 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { scanBody } from "./body.ts";
 import { createDetector, type DetectorOptions } from "./detector.ts";
-import { createOcrWorker } from "./ocr.ts";
-import type { ImageInput, OcrMode, OcrResult, OcrWorker } from "./ocr-contract.ts";
+import { createOcrWorker } from "./ocr/worker.ts";
+import type { ImageInput, OcrMode, OcrResult, OcrWorker } from "./ocr/contract.ts";
 
 const MAX_BODY = 32 * 1024 * 1024, MAX_IMAGE = 20 * 1024 * 1024, MAX_IMAGES = 8, DEADLINE_MS = 60_000;
 const LOOPBACK = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);

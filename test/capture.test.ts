@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, chmod, lstat, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCaptureStore } from "../src/capture.ts";
+import { createCaptureStore } from "../src/ocr/capture.ts";
 
 const dirs: string[] = [];
 async function setup(maxBytes = 100, ttlMs = 10000) {

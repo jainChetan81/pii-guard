@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, link, lstat, mkdir, readdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CaptureOptions, CaptureStore } from "./ocr-contract.ts";
+import type { CaptureOptions, CaptureStore } from "./contract.ts";
 
 export function createCaptureStore(options: CaptureOptions & { onError?: (code: string) => void }): CaptureStore {
   let chain: Promise<unknown> = Promise.resolve();

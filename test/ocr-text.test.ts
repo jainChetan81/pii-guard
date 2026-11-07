@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createDetector } from "../src/detector.ts";
-import { foldOcrText, OCR_MODES, scanOcrText } from "../src/ocr-text.ts";
+import { foldOcrText, OCR_MODES, scanOcrText } from "../src/ocr/text.ts";
 
 const detector = createDetector({ salt: "ocr-text-test" });
 const scan = (text: string) => scanOcrText(text, detector, "enhanced");

@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDetector } from "../src/detector.ts";
-import { ocrBin, scanImage } from "../src/media.ts";
-import { replayImages } from "../src/replay-images.ts";
+import { ocrBin, scanImage } from "../src/ocr/media.ts";
+import { replayImages } from "../src/ocr/replay-images.ts";
 
 const available = ["tesseract", "ffmpeg"].every(name => spawnSync(ocrBin(name), [name === "tesseract" ? "--version" : "-version"], { stdio: "ignore" }).status === 0);
 const folder = join(import.meta.dir, "fixtures/ocr-corpus");

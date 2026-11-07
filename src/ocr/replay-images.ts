@@ -3,9 +3,9 @@ import { spawnSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Detector } from "./detector.ts";
+import type { Detector } from "../detector.ts";
 import { isSupportedImage, scanImage } from "./media.ts";
-import type { OcrMode } from "./ocr-text.ts";
+import type { OcrMode } from "./text.ts";
 
 type Counts = { tp: number; fp: number; fn: number; precision: number | null; recall: number | null };
 export interface ReplayReport {

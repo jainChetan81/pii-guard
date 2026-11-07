@@ -1,7 +1,7 @@
 // Reports which local OCR tools exist, so a host can tell what it must install. Nothing is downloaded.
 import { spawnSync } from "node:child_process";
 import { ocrBin } from "./media.ts";
-import type { OcrMode } from "./ocr-text.ts";
+import type { OcrMode } from "./text.ts";
 
 export interface ToolStatus { name: string; found: boolean; version?: string; neededFor: string; install: string }
 export interface DoctorReport { tools: ToolStatus[]; languages: string[]; modes: Record<OcrMode, boolean>; pdf: boolean }

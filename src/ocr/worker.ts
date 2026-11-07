@@ -1,11 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID, webcrypto } from "node:crypto";
-import { createDetector, type DetectorOptions, type Finding } from "./detector.ts";
-import { RULES } from "./rules.ts";
-import { OCR_MODES } from "./ocr-text.ts";
+import { createDetector, type DetectorOptions, type Finding } from "../detector.ts";
+import { RULES } from "../rules.ts";
+import { OCR_MODES } from "./text.ts";
 import { FFMPEG_ARGS, MAX_PREPROCESSED_BYTES, isSupportedImage, ocrBin, parseTesseractTsv, tesseractArgs } from "./media.ts";
 import { createCaptureStore, startSweeper } from "./capture.ts";
-import type { CaptureStore, ImageInput, OcrOptions, OcrReason, OcrResult, OcrWorker, SafeHit } from "./ocr-contract.ts";
+import type { CaptureStore, ImageInput, OcrOptions, OcrReason, OcrResult, OcrWorker, SafeHit } from "./contract.ts";
 
 const MAX_DECODED_BYTES = 20 * 1024 * 1024;
 // Admission bounds memory before decode; cache hits and coalesced images never reach the OCR queue.
