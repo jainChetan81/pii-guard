@@ -98,8 +98,8 @@ export const RULES: Rule[] = [
   { id: "driving_license_in", kind: "pii", group: "gov_id", label: "Driving licence", re: /\b[A-Z]{2}[ -]?\d{2}[ -]?(?:19|20)\d{2}[ -]?\d{7}\b/g, keyword: /licen[cs]e|driving|\bdl\b/i },
   { id: "aadhaar", kind: "pii", group: "gov_id", label: "Aadhaar", re: /(?<![\w-])[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?![\w-])/g,
     check: (v: string) => verhoeff(digitsOnly(v)), keyword: /aadhaa?r|uidai|\buid\b|आधार/i },
-  { id: "pan", kind: "pii", group: "gov_id", label: "PAN", re: /\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b/g,
-    keyword: /\bpan\b|permanent account|income ?tax|\bitr\b/i },
+  // Format alone: the 4th-letter holder code keeps noise low (18 distinct shapes in 30 days of agent logs).
+  { id: "pan", kind: "pii", group: "gov_id", label: "PAN", re: /\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b/g, keyword: null },
   { id: "ifsc", kind: "pii", group: "financial", label: "IFSC", re: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g, keyword: /ifsc|bank|branch|neft|imps|rtgs/i },
   { id: "in_phone", kind: "pii", group: "contact", label: "Phone (IN)", re: /(?<![\w.+-])(?:\+91[ -]?)?[6-9]\d{4}[ -]?\d{5}(?![\w.-])/g,
     keyword: /phone|mobile|whatsapp|\bcall\b|contact|\btel\b|\+91|\bmob\b/i },

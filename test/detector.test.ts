@@ -60,6 +60,10 @@ describe("patterns need keywords for weak formats", () => {
   test("UUID fragments are ignored", () => {
     expect(d.scan(`aadhaar 550e8400-${AADHAAR.slice(0, 4)}-${AADHAAR.slice(4, 8)}-${AADHAAR.slice(8)}`)).toEqual([]);
   });
+  test("PAN needs no keyword, only a valid holder code", () => {
+    expect(d.scan("my Aadhaar ID is ABCPE1234F").map((f) => f.rule)).toEqual(["pan"]);
+    expect(d.scan("sku ABCXE1234F")).toEqual([]);
+  });
   test("phone needs keyword", () => {
     expect(d.scan("ts 9876543210 ms")).toEqual([]);
     expect(d.scan("mobile: 9876543210").map((f) => f.rule)).toEqual(["in_phone"]);
@@ -88,8 +92,8 @@ test("long scan results are cached without sharing mutable findings", () => {
 
 test("scan cache keeps context in its key", () => {
   const detector = createDetector();
-  const text = `${"x".repeat(300)} ABCPE1234F`;
-  expect(detector.scan(text, "PAN").map(f => f.rule)).toEqual(["pan"]);
+  const text = `${"x".repeat(300)} ${AADHAAR}`;
+  expect(detector.scan(text, "Aadhaar").map(f => f.rule)).toEqual(["aadhaar"]);
   expect(detector.scan(text, "unrelated")).toEqual([]);
 });
 
@@ -115,9 +119,9 @@ describe("scanBody", () => {
 
   test("keyword context includes direct sibling keys and short string values", () => {
     const detector = createDetector();
-    const body = { messages: [{ role: "user", content: { label: "PAN", value: "ABCPE1234F" } }] };
-    expect(scanBody(body, detector).findings.map(f => f.rule)).toContain("pan");
-    const unrelated = { messages: [{ role: "user", content: { label: "identifier", value: "ABCPE1234F" } }] };
+    const body = { messages: [{ role: "user", content: { label: "Aadhaar", value: AADHAAR } }] };
+    expect(scanBody(body, detector).findings.map(f => f.rule)).toContain("aadhaar");
+    const unrelated = { messages: [{ role: "user", content: { label: "identifier", value: AADHAAR } }] };
     expect(scanBody(unrelated, detector).findings).toEqual([]);
   });
 });
