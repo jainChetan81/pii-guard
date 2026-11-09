@@ -54,3 +54,22 @@ test("signed thinking and bare string bodies are readonly", () => {
   expect(JSON.stringify(thinking)).toContain(KEY);
   expect(scanBody(KEY, d, undefined, t => d.redact(t).text).findings.every(f => f.readonly)).toBe(true);
 });
+
+test("numbers in messages are redacted; request parameters stay readonly", () => {
+  const card = 4111111111111111;
+  const body = { card_number: card, messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t", name: "pay", input: { label: "card number", card } }] }] };
+  // Like 9Router: replace the given findings, do not rescan without the sibling context.
+  const mask = (t: string, fs: { start: number; end: number }[]) => fs.reduceRight((out, f) => out.slice(0, f.start) + "[x]" + out.slice(f.end), t);
+  const r = scanBody(body, d, undefined, mask);
+  const input = (body.messages[0]!.content[0] as { input: { card: unknown } }).input;
+  expect(typeof input.card).toBe("string");
+  expect(String(input.card)).not.toContain("4111111111111111");
+  expect(body.card_number).toBe(card);
+  expect(r.findings.filter(f => f.readonly).map(f => f.path)).toEqual(["[field:0]"]);
+});
+
+test("numbers without findings keep their type", () => {
+  const body = { messages: [{ role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: [{ type: "text", text: "ok" }], n: 42 }] }] };
+  scanBody(body, d, undefined, t => d.redact(t).text);
+  expect((body.messages[0]!.content[0] as { n: unknown }).n).toBe(42);
+});

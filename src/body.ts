@@ -67,8 +67,12 @@ export function scanBody(body: unknown, detector: Detector, onImage?: (image: Im
   // Returns the replacement for a string node; any other node is edited in place.
   function walk(node: unknown, ctx: Context, path: string, depth = 0, scanContext?: string): unknown {
     if (depth > 100) throw Error("Request nesting limit exceeded");
-    // Numbers are scanned as text but never rewritten, so the body keeps its types.
-    if (typeof node === "number" && Number.isFinite(node)) { walk(String(node), { ...ctx, ro: true }, path, depth, scanContext); return node; }
+    // Numbers are scanned as text. Inside a message a hit becomes the redacted string; request
+    // parameters (no role, e.g. max_tokens) stay readonly so the body keeps its types.
+    if (typeof node === "number" && Number.isFinite(node)) {
+      const out = walk(String(node), { ...ctx, ro: ctx.ro || ctx.role === "-" }, path, depth, scanContext);
+      return out === String(node) ? node : out;
+    }
     if (typeof node === "string") {
       result.chars += node.length;
       const raw = detector.scan(node, scanContext);
